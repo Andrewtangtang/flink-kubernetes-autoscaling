@@ -69,7 +69,7 @@ ssh_remote() {
     ssh -o BatchMode=yes "${TARGET_HOST}" "$@"
 }
 
-ensure_remote_image() {
+sync_remote_image() {
     local local_image_id remote_image_id
 
     docker image inspect "${IMAGE}" >/dev/null 2>&1
@@ -88,6 +88,23 @@ ensure_remote_image() {
         echo -e "${RED}✗ Remote image sync failed for ${IMAGE}${NC}"
         exit 1
     fi
+}
+
+ensure_remote_image() {
+    local remote_image_id
+
+    remote_image_id="$(ssh_remote "sudo -n docker image inspect --format '{{.Id}}' '${IMAGE}' 2>/dev/null || true")"
+    if [[ -n "${remote_image_id}" ]]; then
+        return 0
+    fi
+
+    echo "  Pulling ${IMAGE} on ${TARGET_HOST}..."
+    if ssh_remote "sudo -n docker pull '${IMAGE}' >/dev/null"; then
+        return 0
+    fi
+
+    echo "  Remote pull failed; falling back to a local Docker image sync..."
+    sync_remote_image
 }
 
 verify_remote_image() {
@@ -143,7 +160,7 @@ case "${ACTION}" in
 
     sync-image)
         echo "── Syncing Standalone insert_kafka Image To ${TARGET_HOST} ───────────"
-        ensure_remote_image
+        sync_remote_image
         verify_remote_image
         echo -e "${GREEN}✓${NC} ${IMAGE} is ready on ${TARGET_HOST}"
         ;;
