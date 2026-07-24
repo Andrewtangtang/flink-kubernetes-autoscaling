@@ -18,17 +18,22 @@ vertices:
 | `d1c51a4d3e...` | maximum bid per auction | 1 | yes |
 | `0091c84691...` | average winning bid per category + sink | 1 | yes |
 
-The prepared manifests currently use `pipeline.max-parallelism=18`. Section
-6.3 explicitly identifies 18 as Q19's cap, while Section 4.6 refers only to
-"our cap" without stating whether every state-heavy query used the same value.
+The prepared manifests use `pipeline.max-parallelism=18`. Section 6.3
+explicitly identifies 18 as Q19's cap, while Section 4.6 refers only to "our
+cap" without stating whether every state-heavy query used the same value.
 Using 18 for Q4 is therefore a reconstruction assumption, not a value stated
-explicitly for Q4, and must be confirmed before the run is labeled an exact
-reproduction.
+explicitly for Q4.
 
 The two sources currently reuse the fixed Q20 Kafka-source settings because
 the `_unique` queries share the same Kafka DDL and physical source IDs. The
 paper does not state Q4's source parallelisms, so auction P12 and bid P1 are
-also reconstruction assumptions that must be confirmed.
+also reconstruction assumptions.
+
+These assumptions are accepted for the local DS2-versus-Justin evaluation.
+Both policies use exactly the same reconstructed graph and limits, which makes
+the local pair internally comparable. Results must still be labeled as a
+reconstructed evaluation rather than an exact reproduction of the author's
+unpublished Q4 configuration.
 
 The paper specifies the 40K events/s target but not a total event count.
 `run-env.sh` uses a controlled 100M-event horizon, matching the completed Q20
@@ -92,6 +97,22 @@ kubectl apply -k "experiments/1725-kafka-q4-unique/jobs/${POLICY}"
 kubectl get flinkdeployment flink -w
 ```
 
+Start the shared port forwards and live Prometheus monitor in a monitoring
+terminal **before** starting the coordinator:
+
+```bash
+cd ~/flink-kubernetes-autoscaling
+source experiments/1725-kafka-q4-unique/run-env.sh
+scripts/autoscaling/job-monitoring/port-forward.sh start
+scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
+  --interval 5 \
+  --rate-window 30s
+```
+
+Starting the shared forward first avoids interrupting the coordinator's Flink
+REST connection. The coordinator detects the healthy localhost port 8081 and
+reuses it.
+
 Start the coordinator in a second terminal:
 
 ```bash
@@ -110,6 +131,12 @@ scripts/autoscaling/job-monitoring/observe-scaling.py \
   --configmap autoscaler-flink \
   --follow
 ```
+
+The upper table summarizes each TaskManager pod's node, CPU, memory, busy time,
+and task traffic. The lower table shows placement, busy time, and records/s for
+every subtask. Use `--task-regex 'Join|GroupAggregate'` to focus on Q4's
+policy-controlled operators. This live display complements the third
+terminal's five-minute policy snapshots.
 
 After the coordinator reports the tracked Q4 job, start the initial producer
 from the first terminal:

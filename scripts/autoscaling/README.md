@@ -54,8 +54,34 @@ scripts/autoscaling/job-management/stop-job.sh
 
 ## Job Monitoring
 
+Start the repository port forwards, then choose the view needed:
+
 ```bash
 scripts/autoscaling/job-monitoring/port-forward.sh start
+scripts/autoscaling/job-monitoring/observe-flink-metrics.py
 scripts/autoscaling/job-monitoring/observe-scaling.py --follow
 scripts/autoscaling/status.sh
 ```
+
+`observe-flink-metrics.py` refreshes every five seconds and combines the active
+Flink job with Prometheus metrics. Its pod table shows TaskManager placement,
+CPU cores, working-set memory, task count, average/maximum busy time, and
+aggregate task record rates. Its subtask table shows each task's pod, node,
+busy time, and input/output rate. The displayed `total source out` is the sum
+of source-operator output rates; the pod-level `TaskIn/s` and `TaskOut/s`
+columns sum traffic across all operator stages and are not end-to-end
+throughput.
+
+Useful variants:
+
+```bash
+scripts/autoscaling/job-monitoring/observe-flink-metrics.py --summary-only
+scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
+  --task-regex 'Join|GroupAggregate'
+scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
+  --once --json
+```
+
+`observe-scaling.py` remains the policy view: it prints the autoscaler's
+window-level decisions rather than live five-second telemetry. Grafana remains
+the detailed historical view.
