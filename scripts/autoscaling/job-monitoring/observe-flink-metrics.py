@@ -41,6 +41,7 @@ DEFAULT_FLINK_URL = "http://localhost:8081"
 DEFAULT_NAMESPACE = "default"
 DEFAULT_INTERVAL_SECONDS = 5.0
 DEFAULT_RATE_WINDOW = "30s"
+DEFAULT_CPU_RATE_WINDOW = "2m"
 TASKMANAGER_POD_PATTERN = "flink-taskmanager-.*"
 
 
@@ -240,6 +241,7 @@ def metric_queries(
     job_id: str,
     namespace: str,
     rate_window: str,
+    cpu_rate_window: str,
 ) -> dict[str, str]:
     job = label_value(job_id)
     ns = label_value(namespace)
@@ -262,17 +264,11 @@ def metric_queries(
             f'(rate(flink_taskmanager_job_task_numRecordsOut{{job_id="{job}"}}'
             f"[{rate_window}]))"
         ),
-        "source_out": (
-            "sum("
-            f'rate(flink_taskmanager_job_task_operator_numRecordsOut{{job_id="{job}",'
-            f'task_name=~"Source.*"}}[{rate_window}])'
-            ")"
-        ),
         "pod_cpu": (
             "sum by (pod) "
             f'(rate(container_cpu_usage_seconds_total{{namespace="{ns}",'
             f'pod=~"{pods}",container="flink-main-container",cpu="total"}}'
-            f"[{rate_window}]))"
+            f"[{cpu_rate_window}]))"
         ),
         "pod_memory": (
             "sum by (pod) "
@@ -287,9 +283,15 @@ def collect_snapshot(
     job: ActiveJob,
     namespace: str,
     rate_window: str,
+    cpu_rate_window: str,
     task_pattern: re.Pattern[str] | None,
 ) -> MetricsSnapshot:
-    queries = metric_queries(job.job_id, namespace, rate_window)
+    queries = metric_queries(
+        job.job_id,
+        namespace,
+        rate_window,
+        cpu_rate_window,
+    )
     results = {name: prometheus.query(query) for name, query in queries.items()}
 
     nodes = pod_nodes(results["pod_info"])
@@ -356,8 +358,13 @@ def collect_snapshot(
 
     source_records_out = sum(
         value
-        for sample in results["source_out"]
-        if (value := sample_value(sample)) is not None
+        for key, value in records_out.items()
+        if key.task_name.startswith("Source:")
+        and (
+            not active_pods
+            or key.pod == "unknown"
+            or key.pod in active_pods
+        )
     )
     return MetricsSnapshot(
         timestamp=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -491,7 +498,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--rate-window",
         type=valid_rate_window,
         default=DEFAULT_RATE_WINDOW,
-        help=f"Prometheus rate window (default: {DEFAULT_RATE_WINDOW})",
+        help=f"Flink task record-rate window (default: {DEFAULT_RATE_WINDOW})",
+    )
+    parser.add_argument(
+        "--cpu-rate-window",
+        type=valid_rate_window,
+        default=DEFAULT_CPU_RATE_WINDOW,
+        help=(
+            "Container CPU-rate window "
+            f"(default: {DEFAULT_CPU_RATE_WINDOW}; kubelet scrapes are sparse)"
+        ),
     )
     parser.add_argument(
         "--task-regex",
@@ -543,6 +559,7 @@ def main() -> int:
                     job,
                     args.namespace,
                     args.rate_window,
+                    args.cpu_rate_window,
                     task_pattern,
                 )
                 if args.json:

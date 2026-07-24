@@ -68,9 +68,11 @@ Flink job with Prometheus metrics. Its pod table shows TaskManager placement,
 CPU cores, working-set memory, task count, average/maximum busy time, and
 aggregate task record rates. Its subtask table shows each task's pod, node,
 busy time, and input/output rate. The displayed `total source out` is the sum
-of source-operator output rates; the pod-level `TaskIn/s` and `TaskOut/s`
-columns sum traffic across all operator stages and are not end-to-end
-throughput.
+of physical source-task output rates, counted once per source subtask; the
+pod-level `TaskIn/s` and `TaskOut/s` columns sum traffic across all operator
+stages and are not end-to-end throughput. Task record rates use a 30-second
+window by default. Container CPU uses a separate 2-minute window because the
+kubelet/cAdvisor series is scraped less frequently.
 
 Useful variants:
 
@@ -78,6 +80,8 @@ Useful variants:
 scripts/autoscaling/job-monitoring/observe-flink-metrics.py --summary-only
 scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
   --task-regex 'Join|GroupAggregate'
+scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
+  --rate-window 30s --cpu-rate-window 2m
 scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
   --once --json
 ```

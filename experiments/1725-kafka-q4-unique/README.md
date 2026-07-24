@@ -106,7 +106,8 @@ source experiments/1725-kafka-q4-unique/run-env.sh
 scripts/autoscaling/job-monitoring/port-forward.sh start
 scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
   --interval 5 \
-  --rate-window 30s
+  --rate-window 30s \
+  --cpu-rate-window 2m
 ```
 
 Starting the shared forward first avoids interrupting the coordinator's Flink
