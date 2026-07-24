@@ -1,0 +1,6 @@
+- op: replace
+  path: /spec/flinkConfiguration/job.autoscaler.justin.enabled
+  value: 'true'
+- op: replace
+  path: /spec/job/args/3
+  value: q4_unique-sql-ssd-kafka-justin-rocksdb-options
