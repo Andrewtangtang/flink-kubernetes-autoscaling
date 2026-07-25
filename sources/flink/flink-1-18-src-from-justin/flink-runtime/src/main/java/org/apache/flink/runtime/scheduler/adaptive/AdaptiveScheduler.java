@@ -186,6 +186,7 @@ public class AdaptiveScheduler
         StopWithSavepoint.Context {
 
     private static final Logger LOG = LoggerFactory.getLogger(AdaptiveScheduler.class);
+    private static final String RESOURCE_DIAGNOSTIC_MARKER = "JUSTIN_RESOURCE_DIAGNOSTIC";
 
     private final JobGraph jobGraph;
     private final VertexParallelismStore initialParallelismStore;
@@ -1080,6 +1081,24 @@ public class AdaptiveScheduler
         final ResourceCounter newDesiredResources = calculateJustinDesiredResources();
 
         if (!newDesiredResources.equals(this.desiredResources)) {
+            LOG.info(
+                    "{} desired-resources-change old={} new={}",
+                    RESOURCE_DIAGNOSTIC_MARKER,
+                    this.desiredResources,
+                    newDesiredResources);
+            if (this.justinResourceRequirements != null) {
+                for (JobVertex vertex : jobGraph.getVertices()) {
+                    LOG.info(
+                            "{} desired-vertex id={} name={} parallelism={} profile={}",
+                            RESOURCE_DIAGNOSTIC_MARKER,
+                            vertex.getID(),
+                            vertex.getName(),
+                            this.justinResourceRequirements
+                                    .getParallelism(vertex.getID())
+                                    .getUpperBound(),
+                            this.justinResourceRequirements.getResourceProfile(vertex.getID()));
+                }
+            }
             this.desiredResources = newDesiredResources;
             declarativeSlotPool.setResourceRequirements(this.desiredResources);
         }
