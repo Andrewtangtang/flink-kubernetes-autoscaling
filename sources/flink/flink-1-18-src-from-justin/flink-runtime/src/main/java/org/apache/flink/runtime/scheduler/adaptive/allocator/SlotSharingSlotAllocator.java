@@ -31,12 +31,16 @@ import org.apache.flink.runtime.scheduler.adaptive.JobSchedulingPlan.SlotAssignm
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.util.ResourceCounter;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.annotation.Nonnull;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -48,6 +52,8 @@ import java.util.stream.Collectors;
 
 /** {@link SlotAllocator} implementation that supports slot sharing. */
 public class SlotSharingSlotAllocator implements SlotAllocator {
+
+    private static final Logger LOG = LoggerFactory.getLogger(SlotSharingSlotAllocator.class);
 
     public final ReserveSlotFunction reserveSlotFunction;
     public final FreeSlotFunction freeSlotFunction;
@@ -219,6 +225,10 @@ public class SlotSharingSlotAllocator implements SlotAllocator {
 
     @Override
     public Optional<ReservedSlots> tryReserveResources(JobSchedulingPlan jobSchedulingPlan) {
+        if (!hasCompleteVertexAssignment(jobSchedulingPlan)) {
+            return Optional.empty();
+        }
+
         final Collection<AllocationID> expectedSlots =
                 calculateExpectedSlots(jobSchedulingPlan.getSlotAssignments());
         if (areAllExpectedSlotsAvailableAndFree(expectedSlots)) {
@@ -238,6 +248,41 @@ public class SlotSharingSlotAllocator implements SlotAllocator {
         } else {
             return Optional.empty();
         }
+    }
+
+    private boolean hasCompleteVertexAssignment(JobSchedulingPlan jobSchedulingPlan) {
+        final Set<ExecutionVertexID> expectedVertices = new HashSet<>();
+        for (JobVertexID jobVertexId : jobSchedulingPlan.getVertexParallelism().getVertices()) {
+            final int parallelism =
+                    jobSchedulingPlan.getVertexParallelism().getParallelism(jobVertexId);
+            for (int subtaskIndex = 0; subtaskIndex < parallelism; subtaskIndex++) {
+                expectedVertices.add(new ExecutionVertexID(jobVertexId, subtaskIndex));
+            }
+        }
+
+        final Set<ExecutionVertexID> assignedVertices = new HashSet<>();
+        boolean hasDuplicateAssignment = false;
+        for (SlotAssignment assignment : jobSchedulingPlan.getSlotAssignments()) {
+            for (ExecutionVertexID executionVertexId :
+                    assignment
+                            .getTargetAs(ExecutionSlotSharingGroup.class)
+                            .getContainedExecutionVertices()) {
+                if (!assignedVertices.add(executionVertexId)) {
+                    hasDuplicateAssignment = true;
+                }
+            }
+        }
+
+        if (hasDuplicateAssignment || !assignedVertices.equals(expectedVertices)) {
+            LOG.debug(
+                    "Rejecting incomplete slot assignment: expected {} execution vertices, "
+                            + "assigned {} unique execution vertices, duplicate assignment={}.",
+                    expectedVertices.size(),
+                    assignedVertices.size(),
+                    hasDuplicateAssignment);
+            return false;
+        }
+        return true;
     }
 
     @Nonnull
