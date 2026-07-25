@@ -137,7 +137,12 @@ The upper table summarizes each TaskManager pod's node, CPU, memory, busy time,
 and task traffic. The lower table shows placement, busy time, and records/s for
 every subtask. Use `--task-regex 'Join|GroupAggregate'` to focus on Q4's
 policy-controlled operators. This live display complements the third
-terminal's five-minute policy snapshots.
+terminal's five-minute policy snapshots. Because `run-env.sh` exports
+`EVENTS=100000000` and `SOURCE_EVENT_SHARE=0.98`, the monitor also displays an
+estimated global Nexmark replay position and completion percentage. The
+estimate converts cumulative auction+bid source records back to raw Nexmark
+events; it is approximate because the 24 Kafka partitions advance
+independently.
 
 After the coordinator reports the tracked Q4 job, start the initial producer
 from the first terminal:

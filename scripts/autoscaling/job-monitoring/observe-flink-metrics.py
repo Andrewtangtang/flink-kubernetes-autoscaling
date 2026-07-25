@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 import sys
 import time
@@ -98,6 +99,10 @@ class MetricsSnapshot:
     job_name: str
     job_state: str
     source_records_out_per_second: float
+    source_records_out_total: float
+    processed_events_estimate: int | None
+    total_events: int | None
+    replay_progress_percent: float | None
     pods: list[PodMetrics]
     tasks: list[TaskMetrics]
 
@@ -237,6 +242,21 @@ def pod_nodes(samples: list[dict[str, Any]]) -> dict[str, str]:
     return nodes
 
 
+def estimate_replay_progress(
+    source_records_out_total: float,
+    total_events: int | None,
+    source_event_share: float,
+) -> tuple[int | None, float | None]:
+    if total_events is None:
+        return None, None
+
+    processed_events = min(
+        total_events,
+        max(0, int(source_records_out_total / source_event_share)),
+    )
+    return processed_events, processed_events / total_events * 100.0
+
+
 def metric_queries(
     job_id: str,
     namespace: str,
@@ -264,6 +284,12 @@ def metric_queries(
             f'(rate(flink_taskmanager_job_task_numRecordsOut{{job_id="{job}"}}'
             f"[{rate_window}]))"
         ),
+        "records_out_total": (
+            "sum by (pod, task_name, subtask_index) "
+            "(last_over_time("
+            f'flink_taskmanager_job_task_numRecordsOut{{job_id="{job}"}}'
+            f"[{rate_window}]))"
+        ),
         "pod_cpu": (
             "sum by (pod) "
             f'(rate(container_cpu_usage_seconds_total{{namespace="{ns}",'
@@ -285,6 +311,8 @@ def collect_snapshot(
     rate_window: str,
     cpu_rate_window: str,
     task_pattern: re.Pattern[str] | None,
+    total_events: int | None,
+    source_event_share: float,
 ) -> MetricsSnapshot:
     queries = metric_queries(
         job.job_id,
@@ -299,6 +327,7 @@ def collect_snapshot(
     busy = sample_map(results["busy"])
     records_in = sample_map(results["records_in"])
     records_out = sample_map(results["records_out"])
+    records_out_total = sample_map(results["records_out_total"])
     pod_cpu = pod_value_map(results["pod_cpu"])
     pod_memory = pod_value_map(results["pod_memory"])
 
@@ -366,12 +395,32 @@ def collect_snapshot(
             or key.pod in active_pods
         )
     )
+    source_records_out_total = sum(
+        value
+        for key, value in records_out_total.items()
+        if key.task_name.startswith("Source:")
+        and (
+            not active_pods
+            or key.pod == "unknown"
+            or key.pod in active_pods
+        )
+    )
+    processed_events_estimate, replay_progress_percent = estimate_replay_progress(
+        source_records_out_total,
+        total_events,
+        source_event_share,
+    )
+
     return MetricsSnapshot(
         timestamp=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         job_id=job.job_id,
         job_name=job.name,
         job_state=job.state,
         source_records_out_per_second=source_records_out,
+        source_records_out_total=source_records_out_total,
+        processed_events_estimate=processed_events_estimate,
+        total_events=total_events,
+        replay_progress_percent=replay_progress_percent,
         pods=pods,
         tasks=tasks,
     )
@@ -426,14 +475,30 @@ def render_snapshot(snapshot: MetricsSnapshot, summary_only: bool) -> str:
             f"tasks={len(snapshot.tasks)} "
             f"total source out={format_rate(snapshot.source_records_out_per_second)}/s"
         ),
-        "",
-        "POD SUMMARY",
-        (
-            f"{'Pod':<30} {'Node':<6} {'Tasks':>5} {'CPU':>6} {'Mem':>7} "
-            f"{'AvgBusy':>8} {'MaxBusy':>8} {'TaskIn/s':>10} {'TaskOut/s':>10}"
-        ),
-        "-" * 107,
     ]
+    if (
+        snapshot.processed_events_estimate is not None
+        and snapshot.total_events is not None
+        and snapshot.replay_progress_percent is not None
+    ):
+        lines.append(
+            "Replay progress≈"
+            f"{snapshot.processed_events_estimate:,}/{snapshot.total_events:,} "
+            f"events ({snapshot.replay_progress_percent:.2f}%); "
+            f"source records={snapshot.source_records_out_total:,.0f}"
+        )
+    lines.extend(
+        [
+            "",
+            "POD SUMMARY",
+            (
+                f"{'Pod':<30} {'Node':<6} {'Tasks':>5} {'CPU':>6} {'Mem':>7} "
+                f"{'AvgBusy':>8} {'MaxBusy':>8} "
+                f"{'TaskIn/s':>10} {'TaskOut/s':>10}"
+            ),
+            "-" * 107,
+        ]
+    )
     for pod in snapshot.pods:
         lines.append(
             f"{shorten(pod.pod, 30):<30} {shorten(pod.node, 6):<6} "
@@ -510,6 +575,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--total-events",
+        type=int,
+        default=int(os.environ["EVENTS"]) if os.environ.get("EVENTS") else None,
+        help=(
+            "Total raw Nexmark events in the current replay "
+            "(default: EVENTS environment variable; disabled if unset)"
+        ),
+    )
+    parser.add_argument(
+        "--source-event-share",
+        type=float,
+        default=float(os.environ.get("SOURCE_EVENT_SHARE", "1.0")),
+        help=(
+            "Fraction of raw Nexmark events represented by the monitored "
+            "Flink sources (default: SOURCE_EVENT_SHARE or 1.0)"
+        ),
+    )
+    parser.add_argument(
         "--task-regex",
         help="Only display tasks whose task_name matches this regular expression",
     )
@@ -541,6 +624,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.interval <= 0:
         parser.error("--interval must be positive")
+    if args.total_events is not None and args.total_events <= 0:
+        parser.error("--total-events must be positive")
+    if not 0 < args.source_event_share <= 1:
+        parser.error("--source-event-share must be in the interval (0, 1]")
 
     try:
         task_pattern = re.compile(args.task_regex) if args.task_regex else None
@@ -561,6 +648,8 @@ def main() -> int:
                     args.rate_window,
                     args.cpu_rate_window,
                     task_pattern,
+                    args.total_events,
+                    args.source_event_share,
                 )
                 if args.json:
                     print(json.dumps(asdict(snapshot), separators=(",", ":")), flush=True)

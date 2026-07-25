@@ -70,6 +70,11 @@ also passed to the coordinator as CLI arguments. `SLOTS`, `TM_CORES`,
 before starting both the producer and coordinator so coordinator-triggered
 producer restarts inherit the same container and Flink runtime sizing.
 
+`SOURCE_EVENT_SHARE=0.98` records that Q20 consumes the auction and bid topics,
+which together contain 98% of the default Nexmark event mix. The live Flink
+metrics monitor uses this value with `EVENTS` to display an approximate global
+event position and replay completion percentage.
+
 ## Start A Run
 
 Pre-pull the Kubernetes job image on the cluster nodes and the Kafka/producer

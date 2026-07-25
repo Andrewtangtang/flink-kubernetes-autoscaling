@@ -21,6 +21,7 @@ export TM_PROCESS_MEMORY=8192m
 
 export TPS=60000
 export EVENTS=300000000
+export SOURCE_EVENT_SHARE=0.98
 export MAX_EMIT_SPEED=false
 
 printf '%s\n' \
@@ -28,4 +29,4 @@ printf '%s\n' \
   "  target=${TARGET_HOST} (${TARGET_IP}) producer_rest_port=${PRODUCER_REST_PORT}" \
   "  parallelism=${PARALLELISM} slots=${SLOTS} tm_cores=${TM_CORES} docker_cpus=${DOCKER_CPUS}" \
   "  jm_memory=${JM_PROCESS_MEMORY} tm_memory=${TM_PROCESS_MEMORY}" \
-  "  tps=${TPS} events=${EVENTS} max_emit_speed=${MAX_EMIT_SPEED}"
+  "  tps=${TPS} events=${EVENTS} source_event_share=${SOURCE_EVENT_SHARE} max_emit_speed=${MAX_EMIT_SPEED}"
