@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../../1726-kafka-q9-unique/jobs/base
+patches:
+- path: q18-patch.yaml
+  target:
+    group: flink.apache.org
+    version: v1beta1
+    kind: FlinkDeployment
+    name: flink
