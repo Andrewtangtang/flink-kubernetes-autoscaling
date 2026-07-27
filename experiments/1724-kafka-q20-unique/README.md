@@ -60,7 +60,7 @@ export JM_PROCESS_MEMORY=2048m
 export TM_PROCESS_MEMORY=8192m
 
 export TPS=60000
-export EVENTS=300000000
+export EVENTS=100000000
 export MAX_EMIT_SPEED=false
 ```
 
@@ -74,6 +74,13 @@ producer restarts inherit the same container and Flink runtime sizing.
 which together contain 98% of the default Nexmark event mix. The live Flink
 metrics monitor uses this value with `EVENTS` to display an approximate global
 event position and replay completion percentage.
+
+For the Figure 6 reconstruction, retain the author-provided policy-specific
+pipeline caps: Justin uses `pipeline.max-parallelism=12`, while DS2 uses 20.
+Both jobs fix the bid source at P1 and the auction source at P12, exclude both
+sources from autoscaling, and start the stateful Join at P1. The policy-specific
+caps are part of the original artifact configuration rather than a fair-policy
+normalization.
 
 ## Start A Run
 
@@ -117,12 +124,6 @@ kubectl get flinkdeployment flink -w
 Look for the `flink` deployment to report a running job before sending data
 into Kafka.
 
-Start the standalone producer with the shared run configuration:
-
-```bash
-experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh start
-```
-
 Start the coordinator in a second terminal with the same run configuration
 exported:
 
@@ -135,14 +136,21 @@ experiments/1724-kafka-q20-unique/external-kafka/run/scaling-kafka-coordinator.p
   --producer-rest-port "${PRODUCER_REST_PORT}"
 ```
 
+After the coordinator prints `Tracking job`, start the standalone producer
+with the shared run configuration:
+
+```bash
+experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh start
+```
+
 The coordinator watches the consumer job through the Flink REST API. When it
 detects a rescale, it pauses and stops the producer, resets Kafka topics, waits
 for the consumer to return to `RUNNING`, and restarts the producer from
 `first-event-id=1` with the same workload settings.
 
 The coordinator manages producer restarts after scaling. It does not start the
-initial producer run, so start the producer once manually before or immediately
-after starting the coordinator.
+initial producer run, so start the producer once manually after it has attached
+to the intended Flink job.
 
 ## Useful Checks
 
