@@ -5,7 +5,9 @@ of 90K input events/s. Q18 reads the bid Kafka topic, keeps the latest bid per
 `(bidder, auction)` with a `ROW_NUMBER` deduplication, and writes to the
 blackhole sink.
 
-The two policy overlays use the same job graph and compute resources.
+The two policies use the same job graph and compute resources. Justin has a
+standalone manifest at `jobs/justin/experiment.yaml`; edit that file directly
+for Justin-only reruns. DS2 continues to use the shared base and policy patch.
 
 ## Settings
 
@@ -13,7 +15,7 @@ The two policy overlays use the same job graph and compute resources.
 - parallelism: source P3 fixed, Deduplicate initially P1, pipeline max 360,
   vertex cap 18;
 - TaskManager: 4 CPU, 2 GiB, 4 slots;
-- Justin: max memory level 4 and managed-memory fraction 0.8;
+- Justin: max memory level 3 and managed-memory fraction 0.4;
 - DS2: managed-memory fraction 0.4.
 
 The Q18 probe on c165 identified the bid source as
@@ -29,8 +31,8 @@ kubectl kustomize experiments/1727-kafka-q18-unique/jobs/ds2 > /tmp/q18-ds2.yaml
 diff -u /tmp/q18-ds2.yaml /tmp/q18-justin.yaml
 ```
 
-The policy diff should contain only the job name, Justin flag, and Justin
-memory settings.
+The policy diff should contain only the job name, Justin flag, and max memory
+level.
 
 ## Run
 
