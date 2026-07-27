@@ -5,7 +5,9 @@ metadata:
 spec:
   flinkConfiguration:
     job.autoscaler.vertex.exclude.ids: cbc357ccb763df2852fee8c4fc7d55f2
-    pipeline.jobvertex-parallelism-overrides: cbc357ccb763df2852fee8c4fc7d55f2:1,90bea66de1c231edf33913ecd54406c1:1
+    job.autoscaler.vertex.max-parallelism: '18'
+    pipeline.max-parallelism: '360'
+    pipeline.jobvertex-parallelism-overrides: cbc357ccb763df2852fee8c4fc7d55f2:3,90bea66de1c231edf33913ecd54406c1:1
   job:
     args:
     - --query

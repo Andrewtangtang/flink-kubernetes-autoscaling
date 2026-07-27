@@ -5,21 +5,16 @@ of 90K input events/s. Q18 reads the bid Kafka topic, keeps the latest bid per
 `(bidder, auction)` with a `ROW_NUMBER` deduplication, and writes to the
 blackhole sink.
 
-The two policy overlays use the same reconstructed job graph and resources;
-only the Justin policy flag and job name differ. The base intentionally reuses
-the Q9 infrastructure manifest so checkpoint, RocksDB, node placement, and
-Prometheus settings remain identical across the state-heavy queries.
+The two policy overlays use the same job graph and compute resources.
 
-## Reconstruction assumptions
+## Settings
 
-The paper does not publish Q18's source parallelism, vertex IDs, or total event
-horizon. This manifest follows the existing Figure 6 reconstruction:
-
-- 100M generated Nexmark events;
-- `pipeline.max-parallelism=18`;
-- bid Kafka source fixed at P1 and excluded from autoscaling;
-- the first stateful Q18 vertex fixed initially at P1 and autoscaled thereafter;
-- bid share `0.92`, from the benchmark generator configuration.
+- events: 100M at total producer TPS 97,827 (approximately 90K bid events/s);
+- parallelism: source P3 fixed, Deduplicate initially P1, pipeline max 360,
+  vertex cap 18;
+- TaskManager: 4 CPU, 2 GiB, 4 slots;
+- Justin: max memory level 4 and managed-memory fraction 0.8;
+- DS2: managed-memory fraction 0.4.
 
 The Q18 probe on c165 identified the bid source as
 `cbc357ccb763df2852fee8c4fc7d55f2` and the Deduplicate vertex as
@@ -34,7 +29,8 @@ kubectl kustomize experiments/1727-kafka-q18-unique/jobs/ds2 > /tmp/q18-ds2.yaml
 diff -u /tmp/q18-ds2.yaml /tmp/q18-justin.yaml
 ```
 
-The policy diff should contain only the Justin flag and job name.
+The policy diff should contain only the job name, Justin flag, and Justin
+memory settings.
 
 ## Run
 
@@ -62,12 +58,21 @@ scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
   --interval 5 --rate-window 30s --cpu-rate-window 2m
 ```
 
-In another terminal, follow policy snapshots:
+The live monitor labels record-rate values with their Prometheus averaging
+window. In another terminal, follow policy snapshots and exact parallelism
+calculation inputs:
 
 ```bash
 scripts/autoscaling/job-monitoring/observe-scaling.py \
   --configmap autoscaler-flink --follow
 ```
+
+`WinAvgCap`/`WinAvg` is the autoscaler's metrics-window average true processing
+capacity. The decision table also reports target data rate, catch-up rate,
+target processing capacity, the unrounded estimate
+`RawP = CurP * TargetCap / WinAvg`, and the rounded/key-group-aligned
+recommendation. For Justin, this is explicitly labeled as the DS2 base
+parallelism calculation that Justin may replace with a memory-level decision.
 
 After Flink is RUNNING, start the producer/coordinator:
 

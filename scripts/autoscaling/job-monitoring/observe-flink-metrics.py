@@ -98,6 +98,8 @@ class MetricsSnapshot:
     job_id: str
     job_name: str
     job_state: str
+    rate_window: str
+    cpu_rate_window: str
     source_records_out_per_second: float
     source_records_out_total: float
     processed_events_estimate: int | None
@@ -192,10 +194,7 @@ def sample_value(sample: dict[str, Any]) -> float | None:
 
 def task_key(metric: dict[str, str]) -> TaskKey:
     return TaskKey(
-        pod=metric.get("pod")
-        or metric.get("host")
-        or metric.get("tm_id")
-        or "unknown",
+        pod=metric.get("pod") or metric.get("host") or metric.get("tm_id") or "unknown",
         task_name=metric.get("task_name") or metric.get("operator_name") or "unknown",
         subtask_index=metric.get("subtask_index", "?"),
     )
@@ -267,9 +266,7 @@ def metric_queries(
     ns = label_value(namespace)
     pods = TASKMANAGER_POD_PATTERN
     return {
-        "pod_info": (
-            f'kube_pod_info{{namespace="{ns}",pod=~"{pods}"}}'
-        ),
+        "pod_info": (f'kube_pod_info{{namespace="{ns}",pod=~"{pods}"}}'),
         "busy": (
             "avg by (pod, task_name, subtask_index) "
             f'(flink_taskmanager_job_task_busyTimeMsPerSecond{{job_id="{job}"}})'
@@ -361,9 +358,7 @@ def collect_snapshot(
     pods = []
     for pod, pod_tasks in sorted(grouped.items()):
         busy_values = [
-            task.busy_percent
-            for task in pod_tasks
-            if task.busy_percent is not None
+            task.busy_percent for task in pod_tasks if task.busy_percent is not None
         ]
         pods.append(
             PodMetrics(
@@ -389,21 +384,13 @@ def collect_snapshot(
         value
         for key, value in records_out.items()
         if key.task_name.startswith("Source:")
-        and (
-            not active_pods
-            or key.pod == "unknown"
-            or key.pod in active_pods
-        )
+        and (not active_pods or key.pod == "unknown" or key.pod in active_pods)
     )
     source_records_out_total = sum(
         value
         for key, value in records_out_total.items()
         if key.task_name.startswith("Source:")
-        and (
-            not active_pods
-            or key.pod == "unknown"
-            or key.pod in active_pods
-        )
+        and (not active_pods or key.pod == "unknown" or key.pod in active_pods)
     )
     processed_events_estimate, replay_progress_percent = estimate_replay_progress(
         source_records_out_total,
@@ -416,6 +403,8 @@ def collect_snapshot(
         job_id=job.job_id,
         job_name=job.name,
         job_state=job.state,
+        rate_window=rate_window,
+        cpu_rate_window=cpu_rate_window,
         source_records_out_per_second=source_records_out,
         source_records_out_total=source_records_out_total,
         processed_events_estimate=processed_events_estimate,
@@ -473,7 +462,12 @@ def render_snapshot(snapshot: MetricsSnapshot, summary_only: bool) -> str:
         (
             f"TaskManager pods={len(snapshot.pods)} "
             f"tasks={len(snapshot.tasks)} "
-            f"total source out={format_rate(snapshot.source_records_out_per_second)}/s"
+            f"total source out ({snapshot.rate_window} avg)="
+            f"{format_rate(snapshot.source_records_out_per_second)}/s"
+        ),
+        (
+            f"Prometheus averages: task record rates={snapshot.rate_window}; "
+            f"pod CPU={snapshot.cpu_rate_window}"
         ),
     ]
     if (
@@ -652,7 +646,9 @@ def main() -> int:
                     args.source_event_share,
                 )
                 if args.json:
-                    print(json.dumps(asdict(snapshot), separators=(",", ":")), flush=True)
+                    print(
+                        json.dumps(asdict(snapshot), separators=(",", ":")), flush=True
+                    )
                 else:
                     if not args.no_clear and not args.once:
                         print("\033[2J\033[H", end="")
