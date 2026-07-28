@@ -35,6 +35,14 @@ the local pair internally comparable. Results must still be labeled as a
 reconstructed evaluation rather than an exact reproduction of the author's
 unpublished Q4 configuration.
 
+The current common TaskManager baseline prioritizes a runnable policy
+comparison over exact paper resource fidelity. Both policies use 3 GiB process
+memory, 4 CPU, 8 slots, and an explicit 1264 MiB managed-memory pool. This
+preserves roughly 158 MiB per baseline slot, gives Justin enough per-TM managed
+memory to place its fourth memory level, and leaves additional process memory
+for task heap, network, framework, and JVM needs. DS2 uses the same physical
+TaskManager configuration so the pair remains internally comparable.
+
 The paper specifies the 40K events/s target but not a total event count.
 `run-env.sh` uses a controlled 100M-event horizon, matching the completed Q20
 reproduction and providing more than 40 minutes of input after the final

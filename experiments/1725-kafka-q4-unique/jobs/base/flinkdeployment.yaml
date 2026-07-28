@@ -18,7 +18,7 @@ spec:
     job.autoscaler.metrics.window: 2m
     pipeline.max-parallelism: '18'
     pipeline.jobvertex-parallelism-overrides: 6cdc5bb954874d922eaee11a8e7b5dd5:1,cbc357ccb763df2852fee8c4fc7d55f2:12,8b481b930a189b6b1762a9d95a61ada1:1,d1c51a4d3efd2babde51c3d234e2ce1c:1,0091c8469144ea2b875a6d92590b3b9b:1
-    taskmanager.numberOfTaskSlots: '4'
+    taskmanager.numberOfTaskSlots: '8'
     cluster.evenly-spread-out-slots: 'true'
     execution.checkpointing.interval: 300m
     state.checkpoints.dir: file:///mnt/experiments/autoscaling-experiments/flink-state/checkpoints
@@ -37,7 +37,7 @@ spec:
     web.submit.enable: 'true'
     web.cancel.enable: 'true'
     state.backend: rocksdb
-    taskmanager.memory.managed.fraction: '0.4'
+    taskmanager.memory.managed.size: 1264m
     taskmanager.cpu.cores: '4'
     state.backend.rocksdb.metrics.block-cache-capacity: 'true'
     state.backend.rocksdb.metrics.block-cache-usage: 'true'
@@ -103,7 +103,7 @@ spec:
           tier: jobmanager
   taskManager:
     resource:
-      memory: 2048m
+      memory: 3072m
       cpu: 4
     podTemplate:
       apiVersion: v1
