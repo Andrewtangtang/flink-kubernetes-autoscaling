@@ -16,7 +16,8 @@ spec:
     job.autoscaler.cache-hit-rate.min.threshold: '0.85'
     job.autoscaler.state-latency.threshold: '1000000.0'
     job.autoscaler.metrics.window: 2m
-    pipeline.max-parallelism: '18'
+    job.autoscaler.vertex.max-parallelism: '12'
+    pipeline.max-parallelism: '360'
     pipeline.jobvertex-parallelism-overrides: 6cdc5bb954874d922eaee11a8e7b5dd5:6,cbc357ccb763df2852fee8c4fc7d55f2:3,8b481b930a189b6b1762a9d95a61ada1:1,d1c51a4d3efd2babde51c3d234e2ce1c:1
     taskmanager.numberOfTaskSlots: '8'
     cluster.evenly-spread-out-slots: 'true'

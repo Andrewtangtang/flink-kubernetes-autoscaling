@@ -13,7 +13,8 @@ SQL query.
 | Managed memory | 1264 MiB | 1264 MiB |
 | Metrics window | 2 minutes | 2 minutes |
 | Stabilization interval | 3 minutes | 3 minutes |
-| Maximum parallelism | 12 | 20 |
+| Pipeline maximum parallelism | 360 | 360 |
+| Autoscaler vertex maximum | 12 | 12 |
 
 Initial job parallelism:
 

@@ -21,12 +21,12 @@ spec:
     job.autoscaler.target.utilization: "0.8"
     job.autoscaler.target.utilization.boundary: "0.3"
     job.autoscaler.vertex.exclude.ids: cbc357ccb763df2852fee8c4fc7d55f2
-    job.autoscaler.vertex.max-parallelism: "18"
+    job.autoscaler.vertex.max-parallelism: "12"
     jobmanager.scheduler: adaptive
     metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
     metrics.reporters: prom
     pipeline.jobvertex-parallelism-overrides: cbc357ccb763df2852fee8c4fc7d55f2:1,90bea66de1c231edf33913ecd54406c1:1
-    pipeline.max-parallelism: "18"
+    pipeline.max-parallelism: "360"
     state.backend: rocksdb
     state.backend.latency-track.keyed-state-enabled: "true"
     state.backend.local-recovery: "true"

@@ -15,7 +15,7 @@ SQL query.
 | Metrics window | 2 minutes |
 | Stabilization interval | 3 minutes |
 | Pipeline maximum parallelism | 360 |
-| Autoscaler vertex maximum | 18 |
+| Autoscaler vertex maximum | 12 |
 
 Initial job parallelism:
 
