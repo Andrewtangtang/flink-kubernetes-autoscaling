@@ -20,6 +20,7 @@ import base64
 import gzip
 import io
 import json
+import math
 import os
 import re
 import subprocess
@@ -55,22 +56,26 @@ class ScalingSnapshot:
 
 
 @dataclass
-class DS2VertexEvent:
+class ParallelismDecision:
     vertex_id: str
     current_parallelism: int
-    new_parallelism: int
+    recommended_parallelism: int
     lag: float | None
-    true_processing_rate: float | None
+    window_average_capacity: float | None
+    target_data_rate: float | None
+    catch_up_data_rate: float | None
+    target_processing_capacity: float | None
+    raw_parallelism: float | None
 
 
 @dataclass
-class DS2ScalingEvent:
+class ParallelismDecisionEvent:
     timestamp: str
-    vertices: list[DS2VertexEvent]
+    vertices: list[ParallelismDecision]
 
 
 DISPLAY_HEADER = (
-    f"{'Vertex':>10}  {'CurP':>4}  {'CurMem':>6}  {'Throughput':>12}  {'CacheHit':>8}  "
+    f"{'Vertex':>10}  {'CurP':>4}  {'CurMem':>6}  {'WinAvgCap':>12}  {'CacheHit':>8}  "
     f"{'P':>3}  {'MemLvl':>6}  {'HScale':>6}  {'VScale':>6}  {'StateLat':>8}"
 )
 DISPLAY_SEP = "-" * len(DISPLAY_HEADER)
@@ -86,6 +91,7 @@ def fmt_level(value: int | None, default: str = "?") -> str:
     if value is None:
         return default
     return str(value)
+
 
 def find_previous_vertex(
     snapshots: list[ScalingSnapshot], snapshot_index: int, vertex_id: str
@@ -111,8 +117,12 @@ def print_snapshot(
         current_memory_level = 0 if previous is None else previous.memory_level
         horizontal = "yes" if vertex.horizontal_scaling else "no"
         vertical = "yes" if vertex.vertical_scaling else "no"
-        cache_hit = f"{vertex.avg_cache_hit_rate:.3f}" if vertex.avg_cache_hit_rate > 0 else "-"
-        state_latency = f"{vertex.avg_state_latency:.1f}" if vertex.avg_state_latency > 0 else "-"
+        cache_hit = (
+            f"{vertex.avg_cache_hit_rate:.3f}" if vertex.avg_cache_hit_rate > 0 else "-"
+        )
+        state_latency = (
+            f"{vertex.avg_state_latency:.1f}" if vertex.avg_state_latency > 0 else "-"
+        )
         print(
             f"  │ {vertex.vertex_id[:10]:>10}  "
             f"{fmt_level(current_parallelism):>4}  {fmt_level(current_memory_level):>6}  "
@@ -146,11 +156,15 @@ def snapshot_to_dict(snapshot: ScalingSnapshot) -> dict:
 
 def run_kubectl(args: list[str]) -> str:
     try:
-        return subprocess.check_output(["kubectl", *args], text=True, stderr=subprocess.STDOUT)
+        return subprocess.check_output(
+            ["kubectl", *args], text=True, stderr=subprocess.STDOUT
+        )
     except subprocess.CalledProcessError as exc:
         details = exc.output.strip()
         if details:
-            raise SystemExit(f"Failed to run kubectl {' '.join(args)}:\n{details}") from exc
+            raise SystemExit(
+                f"Failed to run kubectl {' '.join(args)}:\n{details}"
+            ) from exc
         raise SystemExit(f"Failed to run kubectl {' '.join(args)}") from exc
 
 
@@ -281,7 +295,9 @@ def find_autoscaler_configmap(
     )
     items = json.loads(output).get("items", [])
     if items:
-        items.sort(key=lambda item: item.get("metadata", {}).get("creationTimestamp", ""))
+        items.sort(
+            key=lambda item: item.get("metadata", {}).get("creationTimestamp", "")
+        )
         item = items[-1]
         return item.get("metadata", {}).get("name", f"autoscaler-{deployment}"), item
 
@@ -372,53 +388,106 @@ def detect_autoscaler_algo(deployment: str) -> str:
     return "ds2"
 
 
-DS2_DISPLAY_HEADER = (
-    f"{'Vertex':>10}  {'CurP':>4}  {'NewP':>4}  {'Lag':>12}  {'TrueRate':>12}"
+DECISION_DISPLAY_HEADER = (
+    f"{'Vertex':>10}  {'CurP':>4}  {'WinAvg':>10}  {'TargetRate':>10}  "
+    f"{'CatchUp':>10}  {'TargetCap':>10}  {'RawP':>6}  {'RecP':>4}  {'Lag':>10}"
 )
-DS2_DISPLAY_SEP = "-" * len(DS2_DISPLAY_HEADER)
+DECISION_DISPLAY_SEP = "-" * len(DECISION_DISPLAY_HEADER)
 
 
-def fmt_metric(value: float | None) -> str:
+def fmt_metric(value: float | None, width: int = 10) -> str:
     if value is None or (isinstance(value, float) and (value != value)):  # NaN check
-        return "-".rjust(12)
-    return f"{value:>12.1f}"
+        return "-".rjust(width)
+    return f"{value:>{width}.1f}"
 
 
-def print_ds2_event(events: list[DS2ScalingEvent], event_index: int) -> None:
+def fmt_raw_parallelism(value: float | None) -> str:
+    if value is None:
+        return "-".rjust(6)
+    return f"{value:>6.2f}"
+
+
+def print_parallelism_decision_event(
+    events: list[ParallelismDecisionEvent],
+    event_index: int,
+    title: str | None = None,
+) -> None:
     event = events[event_index]
-    print(f"\n  ┌─ {event.timestamp}")
-    print(f"  │ {DS2_DISPLAY_HEADER}")
-    print(f"  │ {DS2_DISPLAY_SEP}")
+    heading = f"  {title}" if title else ""
+    print(f"\n  ┌─ {event.timestamp}{heading}")
+    print(f"  │ {DECISION_DISPLAY_HEADER}")
+    print(f"  │ {DECISION_DISPLAY_SEP}")
     for vertex in sorted(event.vertices, key=lambda v: v.vertex_id):
         print(
             f"  │ {vertex.vertex_id[:10]:>10}  "
-            f"{vertex.current_parallelism:>4}  {vertex.new_parallelism:>4}  "
-            f"{fmt_metric(vertex.lag)}  {fmt_metric(vertex.true_processing_rate)}"
+            f"{vertex.current_parallelism:>4}  "
+            f"{fmt_metric(vertex.window_average_capacity)}  "
+            f"{fmt_metric(vertex.target_data_rate)}  "
+            f"{fmt_metric(vertex.catch_up_data_rate)}  "
+            f"{fmt_metric(vertex.target_processing_capacity)}  "
+            f"{fmt_raw_parallelism(vertex.raw_parallelism)}  "
+            f"{vertex.recommended_parallelism:>4}  "
+            f"{fmt_metric(vertex.lag)}"
         )
-    print(f"  └{'─' * (len(DS2_DISPLAY_HEADER) + 1)}")
+    print(f"  └{'─' * (len(DECISION_DISPLAY_HEADER) + 1)}")
 
 
-def ds2_event_to_dict(event: DS2ScalingEvent) -> dict:
+def parallelism_decision_event_to_dict(event: ParallelismDecisionEvent) -> dict:
     return {
         "timestamp": event.timestamp,
         "vertices": [
             {
                 "vertexId": v.vertex_id,
                 "currentParallelism": v.current_parallelism,
-                "newParallelism": v.new_parallelism,
+                "recommendedParallelism": v.recommended_parallelism,
                 "lag": v.lag,
-                "trueProcessingRate": v.true_processing_rate,
+                "windowAverageProcessingCapacity": v.window_average_capacity,
+                "targetDataRate": v.target_data_rate,
+                "catchUpDataRate": v.catch_up_data_rate,
+                "targetProcessingCapacity": v.target_processing_capacity,
+                "rawParallelism": v.raw_parallelism,
             }
             for v in event.vertices
         ],
     }
 
 
-def fetch_ds2_scaling_history(
+def metric_value(
+    metrics: dict,
+    metric_name: str,
+    field: str,
+) -> float | None:
+    entry = metrics.get(metric_name) or metrics.get(metric_name.lower())
+    if not isinstance(entry, dict):
+        return None
+    value = entry.get(field)
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def compute_raw_parallelism(
+    current_parallelism: int,
+    window_average_capacity: float | None,
+    target_processing_capacity: float | None,
+) -> float | None:
+    if (
+        current_parallelism <= 0
+        or window_average_capacity is None
+        or window_average_capacity <= 0
+        or target_processing_capacity is None
+    ):
+        return None
+    return current_parallelism * target_processing_capacity / window_average_capacity
+
+
+def fetch_parallelism_decision_history(
     deployment: str,
     since: str | None = None,
     configmap_name: str | None = None,
-) -> tuple[str, list[DS2ScalingEvent]]:
+) -> tuple[str, list[ParallelismDecisionEvent]]:
     found = find_autoscaler_configmap(deployment, configmap_name)
     if not found:
         return "", []
@@ -435,9 +504,9 @@ def fetch_ds2_scaling_history(
 
     cutoff = get_cutoff_time(since)
 
-    # payload is {vertex_id: {timestamp: ScalingSummary}}
-    # Pivot to {timestamp: [DS2VertexEvent]}
-    events_by_ts: dict[str, list[DS2VertexEvent]] = {}
+    # payload is {vertex_id: {timestamp: ScalingSummary}}. Pivot to one event
+    # per decision timestamp so all affected vertices are displayed together.
+    events_by_ts: dict[str, list[ParallelismDecision]] = {}
     for vertex_id, ts_map in payload.items():
         if not isinstance(ts_map, dict):
             continue
@@ -450,40 +519,49 @@ def fetch_ds2_scaling_history(
             ts_str = normalize_timestamp(ts_key)
 
             metrics = summary.get("metrics") or {}
-            lag_entry = metrics.get("LAG") or metrics.get("lag")
-            rate_entry = metrics.get("TRUE_PROCESSING_RATE") or metrics.get("true_processing_rate")
-            lag = None
-            if isinstance(lag_entry, dict):
-                lag = lag_entry.get("current")
-                if lag is not None:
-                    try:
-                        lag = float(lag)
-                    except (ValueError, TypeError):
-                        lag = None
-            rate = None
-            if isinstance(rate_entry, dict):
-                rate = rate_entry.get("current")
-                if rate is not None:
-                    try:
-                        rate = float(rate)
-                    except (ValueError, TypeError):
-                        rate = None
+            window_average_capacity = metric_value(
+                metrics, "TRUE_PROCESSING_RATE", "average"
+            )
+            target_processing_capacity = metric_value(
+                metrics, "EXPECTED_PROCESSING_RATE", "current"
+            )
+            current_parallelism = int(summary.get("currentParallelism", -1))
 
-            vertex_event = DS2VertexEvent(
+            vertex_event = ParallelismDecision(
                 vertex_id=str(vertex_id),
-                current_parallelism=int(summary.get("currentParallelism", -1)),
-                new_parallelism=int(summary.get("newParallelism", -1)),
-                lag=lag,
-                true_processing_rate=rate,
+                current_parallelism=current_parallelism,
+                recommended_parallelism=int(summary.get("newParallelism", -1)),
+                lag=metric_value(metrics, "LAG", "current"),
+                window_average_capacity=window_average_capacity,
+                target_data_rate=metric_value(metrics, "TARGET_DATA_RATE", "average"),
+                catch_up_data_rate=metric_value(
+                    metrics, "CATCH_UP_DATA_RATE", "current"
+                ),
+                target_processing_capacity=target_processing_capacity,
+                raw_parallelism=compute_raw_parallelism(
+                    current_parallelism,
+                    window_average_capacity,
+                    target_processing_capacity,
+                ),
             )
             events_by_ts.setdefault(ts_str, []).append(vertex_event)
 
     events = [
-        DS2ScalingEvent(timestamp=ts, vertices=verts)
+        ParallelismDecisionEvent(timestamp=ts, vertices=verts)
         for ts, verts in events_by_ts.items()
     ]
     events.sort(key=lambda e: e.timestamp)
     return cm_name, events
+
+
+def find_parallelism_decision_event(
+    events: list[ParallelismDecisionEvent],
+    timestamp: str,
+) -> int | None:
+    for index, event in enumerate(events):
+        if event.timestamp == timestamp:
+            return index
+    return None
 
 
 def main() -> int:
@@ -500,7 +578,10 @@ def main() -> int:
     )
     parser.add_argument("--configmap", help="Autoscaler ConfigMap name override")
     parser.add_argument(
-        "--follow", "-f", action="store_true", help="Continuously poll for new snapshots"
+        "--follow",
+        "-f",
+        action="store_true",
+        help="Continuously poll for new snapshots",
     )
     parser.add_argument(
         "--interval",
@@ -523,6 +604,11 @@ def main() -> int:
                 since=args.since,
                 configmap_name=args.configmap,
             )
+            _, parallelism_decisions = fetch_parallelism_decision_history(
+                deployment,
+                since=args.since,
+                configmap_name=args.configmap,
+            )
 
             new_snapshots = []
             for snapshot in snapshots:
@@ -536,7 +622,15 @@ def main() -> int:
                     "deployment": deployment,
                     "algorithm": "justin",
                     "configMap": configmap_name or None,
-                    "richSnapshots": [snapshot_to_dict(snapshot) for snapshot in new_snapshots],
+                    "richSnapshots": [
+                        snapshot_to_dict(snapshot) for snapshot in new_snapshots
+                    ],
+                    "parallelismCalculations": [
+                        parallelism_decision_event_to_dict(event)
+                        for event in parallelism_decisions
+                        if event.timestamp
+                        in {snapshot.timestamp for snapshot in new_snapshots}
+                    ],
                 }
                 print(json.dumps(payload, indent=2))
             else:
@@ -545,6 +639,11 @@ def main() -> int:
                     print(f"Algorithm: justin")
                     if configmap_name:
                         print(f"ConfigMap: {configmap_name}")
+                    print(
+                        "Decision metrics: WinAvgCap is the metrics-window average "
+                        "processing capacity; RawP = CurP × TargetCap / WinAvgCap; "
+                        "RecP is the rounded and key-group-aligned recommendation."
+                    )
                     printed_header = True
 
                 for snapshot in new_snapshots:
@@ -555,19 +654,28 @@ def main() -> int:
                         and candidate.period == snapshot.period
                     )
                     print_snapshot(snapshots, snapshot_index)
+                    decision_index = find_parallelism_decision_event(
+                        parallelism_decisions, snapshot.timestamp
+                    )
+                    if decision_index is not None:
+                        print_parallelism_decision_event(
+                            parallelism_decisions,
+                            decision_index,
+                            title="DS2 base calculation before Justin memory policy",
+                        )
 
                 if not new_snapshots and not args.follow:
                     print("No rich scaling snapshots found in autoscaler ConfigMap.")
 
         else:
-            configmap_name, ds2_events = fetch_ds2_scaling_history(
+            configmap_name, decision_events = fetch_parallelism_decision_history(
                 deployment,
                 since=args.since,
                 configmap_name=args.configmap,
             )
 
             new_events = []
-            for event in ds2_events:
+            for event in decision_events:
                 key = event.timestamp
                 if key not in seen_keys:
                     seen_keys.add(key)
@@ -578,7 +686,9 @@ def main() -> int:
                     "deployment": deployment,
                     "algorithm": "ds2",
                     "configMap": configmap_name or None,
-                    "scalingEvents": [ds2_event_to_dict(e) for e in new_events],
+                    "scalingEvents": [
+                        parallelism_decision_event_to_dict(e) for e in new_events
+                    ],
                 }
                 print(json.dumps(payload, indent=2))
             else:
@@ -587,14 +697,20 @@ def main() -> int:
                     print(f"Algorithm: ds2")
                     if configmap_name:
                         print(f"ConfigMap: {configmap_name}")
+                    print(
+                        "Decision metrics: WinAvg is the metrics-window average "
+                        "processing capacity; RawP = CurP × TargetCap / WinAvg; "
+                        "RecP is the rounded and key-group-aligned recommendation."
+                    )
                     printed_header = True
 
                 for event in new_events:
                     event_index = next(
-                        i for i, e in enumerate(ds2_events)
+                        i
+                        for i, e in enumerate(decision_events)
                         if e.timestamp == event.timestamp
                     )
-                    print_ds2_event(ds2_events, event_index)
+                    print_parallelism_decision_event(decision_events, event_index)
 
                 if not new_events and not args.follow:
                     print("No DS2 scaling events found in autoscaler ConfigMap.")
