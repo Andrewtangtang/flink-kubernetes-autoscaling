@@ -13,12 +13,12 @@ spec:
     job.autoscaler.scaling-config.history.max.count: '100'
     job.autoscaler.stabilization.interval: 3m
     job.autoscaler.vertex.exclude.ids: 6cdc5bb954874d922eaee11a8e7b5dd5;cbc357ccb763df2852fee8c4fc7d55f2
-    job.autoscaler.cache-hit-rate.min.threshold: '0.8'
+    job.autoscaler.cache-hit-rate.min.threshold: '0.85'
     job.autoscaler.state-latency.threshold: '1000000.0'
     job.autoscaler.metrics.window: 2m
-    pipeline.max-parallelism: '24'
+    pipeline.max-parallelism: '12'
     pipeline.jobvertex-parallelism-overrides: 6cdc5bb954874d922eaee11a8e7b5dd5:1,cbc357ccb763df2852fee8c4fc7d55f2:12,8b481b930a189b6b1762a9d95a61ada1:1
-    taskmanager.numberOfTaskSlots: '4'
+    taskmanager.numberOfTaskSlots: '8'
     cluster.evenly-spread-out-slots: 'true'
     execution.checkpointing.interval: 300m
     state.checkpoints.dir: file:///mnt/experiments/autoscaling-experiments/flink-state/checkpoints
@@ -37,8 +37,8 @@ spec:
     web.submit.enable: 'true'
     web.cancel.enable: 'true'
     state.backend: rocksdb
-    taskmanager.memory.managed.fraction: '0.4'
-    taskmanager.cpu.cores: '4'
+    taskmanager.memory.managed.size: 1264m
+    taskmanager.cpu.cores: '8'
     state.backend.rocksdb.metrics.block-cache-capacity: 'true'
     state.backend.rocksdb.metrics.block-cache-usage: 'true'
     state.backend.rocksdb.metrics.block-cache-hit: 'true'
@@ -103,8 +103,8 @@ spec:
           tier: jobmanager
   taskManager:
     resource:
-      memory: 2048m
-      cpu: 4
+      memory: 3072m
+      cpu: 8
     podTemplate:
       apiVersion: v1
       kind: Pod
@@ -145,22 +145,12 @@ spec:
     args:
     - --query
     - q20_unique
-    - --tps
-    - '100000'
-    - --events
-    - '125000000'
-    - --max-emit-speed
-    - 'false'
-    - --prob-delayed-event
-    - '0'
-    - --occasional-delay-min-sec
-    - '60'
-    - --occasional-delay-sec
-    - '240'
-    - --out-of-order-group-size
-    - '1'
     - --job-name
-    - q20_unique-sql-ssd-justin-rocksdb-options
+    - q20_unique-sql-ssd-kafka-justin-rocksdb-options
+    - --source
+    - kafka
+    - --bootstrap-servers
+    - kafka-external:9092
   logConfiguration:
     log4j-console.properties: |
       rootLogger.level = DEBUG
