@@ -18,7 +18,7 @@ spec:
     job.autoscaler.metrics.window: 2m
     job.autoscaler.vertex.max-parallelism: '12'
     pipeline.max-parallelism: '360'
-    pipeline.jobvertex-parallelism-overrides: 6cdc5bb954874d922eaee11a8e7b5dd5:12,cbc357ccb763df2852fee8c4fc7d55f2:1,8b481b930a189b6b1762a9d95a61ada1:1
+    pipeline.jobvertex-parallelism-overrides: cbc357ccb763df2852fee8c4fc7d55f2:12,6cdc5bb954874d922eaee11a8e7b5dd5:1,8b481b930a189b6b1762a9d95a61ada1:1
     taskmanager.numberOfTaskSlots: '8'
     cluster.evenly-spread-out-slots: 'true'
     execution.checkpointing.interval: 300m
