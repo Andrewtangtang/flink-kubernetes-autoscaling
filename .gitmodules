@@ -4,7 +4,7 @@
 	branch = master
 [submodule "sources/operators/flink-kubernetes-operator-justin"]
 	path = sources/operators/flink-kubernetes-operator-justin
-	url = git@github.com:shafinulh/flink-kubernetes-operator-justin.git
+	url = git@github.com:Andrewtangtang/flink-kubernetes-operator-justin.git
 	branch = main
 [submodule "sources/libs/frocksdb"]
 	path = sources/libs/frocksdb
