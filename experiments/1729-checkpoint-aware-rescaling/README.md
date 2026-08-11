@@ -1,5 +1,8 @@
 # Q20 Checkpoint-Aware Justin and DS2 Pilot
 
+For the current five-terminal operator runbook, see
+[`instruction.md`](instruction.md).
+
 This pilot keeps the standalone producer and Kafka topics running while every
 Justin or DS2 decision is gated by a fresh completed Flink checkpoint. It is
 separate from the paper-reproduction coordinator, which intentionally resets
