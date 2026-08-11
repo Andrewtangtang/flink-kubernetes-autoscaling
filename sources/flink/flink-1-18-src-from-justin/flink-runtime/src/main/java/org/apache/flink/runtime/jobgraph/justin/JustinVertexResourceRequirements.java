@@ -10,7 +10,7 @@ import java.util.Objects;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
-public class JustinVertexResourceRequirements {
+public class JustinVertexResourceRequirements implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
@@ -18,6 +18,8 @@ public class JustinVertexResourceRequirements {
     private static final String FIELD_NAME_RESOURCE_PROFILE = "resourceProfile";
 
     public static class Parallelism implements Serializable {
+
+        private static final long serialVersionUID = 1L;
 
         private static final String FIELD_NAME_LOWER_BOUND = "lowerBound";
         private static final String FIELD_NAME_UPPER_BOUND = "upperBound";
@@ -97,7 +99,8 @@ public class JustinVertexResourceRequirements {
             return false;
         }
         final JustinVertexResourceRequirements that = (JustinVertexResourceRequirements) o;
-        return parallelism.equals(that.parallelism);
+        return parallelism.equals(that.parallelism)
+                && Objects.equals(resourceProfile, that.resourceProfile);
     }
 
     @Override
