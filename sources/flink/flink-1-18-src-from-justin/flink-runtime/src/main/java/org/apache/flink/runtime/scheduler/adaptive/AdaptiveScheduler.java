@@ -1300,29 +1300,29 @@ public class AdaptiveScheduler
     private ExecutionGraph assignSlotsToExecutionGraph(
             ExecutionGraph executionGraph, ReservedSlots reservedSlots) {
         for (ExecutionVertex executionVertex : executionGraph.getAllExecutionVertices()) {
-            boolean assigned = false;
-            do {
-                try {
-                    final LogicalSlot assignedSlot = reservedSlots.getSlotFor(executionVertex.getID());
-                    final CompletableFuture<Void> registrationFuture =
-                            executionVertex
-                                    .getCurrentExecutionAttempt()
-                                    .registerProducedPartitions(assignedSlot.getTaskManagerLocation());
-                    Preconditions.checkState(
-                            registrationFuture.isDone(),
-                            "Partition registration must be completed immediately for reactive mode");
+            LogicalSlot assignedSlot = null;
+            try {
+                assignedSlot = reservedSlots.getSlotFor(executionVertex.getID());
+                final CompletableFuture<Void> registrationFuture =
+                        executionVertex
+                                .getCurrentExecutionAttempt()
+                                .registerProducedPartitions(assignedSlot.getTaskManagerLocation());
+                Preconditions.checkState(
+                        registrationFuture.isDone(),
+                        "Partition registration must be completed immediately for reactive mode");
 
-                    executionVertex.tryAssignResource(assignedSlot);
-                    assigned = true;
-                } catch (Exception e) {
-                    LOG.error(e.getMessage());
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException ignored) {
-
-                    }
-                }
-            } while (!assigned);
+                executionVertex.tryAssignResource(assignedSlot);
+            } catch (Exception e) {
+                LOG.error(
+                        "Failed to assign reserved slot {} on {} to execution vertex {}.",
+                        assignedSlot == null ? "unavailable" : assignedSlot.getAllocationId(),
+                        assignedSlot == null
+                                ? "unavailable"
+                                : assignedSlot.getTaskManagerLocation(),
+                        executionVertex.getID(),
+                        e);
+                ExceptionUtils.rethrow(e);
+            }
         }
 
         return executionGraph;

@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -372,6 +373,39 @@ class SlotSharingSlotAllocatorTest {
                 slotSharingSlotAllocator.tryReserveResources(jobSchedulingPlan);
 
         assertThat(reservedSlots).isNotPresent();
+    }
+
+    @Test
+    void testDoesNotReserveResourcesForIncompleteVertexAssignment() {
+        final AtomicInteger reservationCount = new AtomicInteger();
+        final SlotSharingSlotAllocator slotAllocator =
+                SlotSharingSlotAllocator.createSlotSharingSlotAllocator(
+                        (allocationId, resourceProfile) -> {
+                            reservationCount.incrementAndGet();
+                            return TestingPhysicalSlot.builder()
+                                    .withAllocationID(allocationId)
+                                    .withResourceProfile(resourceProfile)
+                                    .build();
+                        },
+                        TEST_FREE_SLOT_FUNCTION,
+                        TEST_IS_SLOT_FREE_FUNCTION);
+        final JobVertexID jobVertexId = new JobVertexID();
+        final Map<JobVertexID, Integer> parallelism = Collections.singletonMap(jobVertexId, 2);
+        final ExecutionSlotSharingGroup partialAssignment =
+                new ExecutionSlotSharingGroup(
+                        Collections.singleton(new ExecutionVertexID(jobVertexId, 0)));
+        final JobSchedulingPlan incompletePlan =
+                new JobSchedulingPlan(
+                        new VertexParallelism(parallelism),
+                        Collections.singleton(
+                                new JobSchedulingPlan.SlotAssignment(
+                                        new TestSlotInfo(), partialAssignment)));
+
+        final Optional<ReservedSlots> reservedSlots =
+                slotAllocator.tryReserveResources(incompletePlan);
+
+        assertThat(reservedSlots).isNotPresent();
+        assertThat(reservationCount).hasValue(0);
     }
 
     /**
