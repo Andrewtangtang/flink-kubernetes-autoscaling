@@ -85,12 +85,19 @@ export RUN_ID=20260810-q20-justin-01  # use the exact same ID in every terminal
 source experiments/1729-checkpoint-aware-rescaling/run-env.sh
 ```
 
-In terminal 1, reset Kafka once, deploy the consumer, and wait for `RUNNING`:
+In terminal 1, reset Kafka once, deploy the consumer, and wait for `RUNNING`.
+After terminal 3 starts the port-forwards, replace the watch with the checkpoint
+transaction observer:
 
 ```bash
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-external-kafka.sh reset
+experiments/1729-checkpoint-aware-rescaling/render-job.sh
+kubectl apply --dry-run=server -f "${RENDERED_MANIFEST}"
 kubectl apply -f "${RENDERED_MANIFEST}"
 watch -n 2 'kubectl get flinkdeployment flink; kubectl get pods -l app=flink -o wide'
+
+# Press Ctrl-C after the job is RUNNING and terminal 3 has started forwarding.
+experiments/1729-checkpoint-aware-rescaling/observe-checkpoint-rescale.py
 ```
 
 In terminal 2, start the bounded producer exactly once:
@@ -100,22 +107,21 @@ experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh logs
 ```
 
-In terminal 3, keep the REST port-forward running:
+In terminal 3, start the shared background port-forwards and display live
+Flink/Prometheus metrics:
 
 ```bash
-kubectl port-forward deployment/flink 8081:8081
-```
-
-In terminal 4, observe checkpoint transactions:
-
-```bash
-experiments/1729-checkpoint-aware-rescaling/observe-checkpoint-rescale.py
+scripts/autoscaling/job-monitoring/port-forward.sh start
+scripts/autoscaling/job-monitoring/port-forward.sh status
+scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
+  --total-events "${EVENTS}" \
+  --source-event-share "${SOURCE_EVENT_SHARE}"
 ```
 
 After a successful rescale, `restart_ms` is the measured apply-to-RUNNING
 duration that will provide restart headroom for later decisions.
 
-In terminal 5, observe autoscaler decisions:
+In terminal 4, observe autoscaler decisions:
 
 ```bash
 scripts/autoscaling/job-monitoring/observe-scaling.py \
