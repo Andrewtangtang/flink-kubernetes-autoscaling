@@ -18,6 +18,51 @@ fi
 
 TARGET="${RUNS_ROOT}/${RUN_ID}"
 
+# Flink writes this tree as the uid/gid of its container user, and every
+# directory is mode 755. Removing an entry needs write permission on its parent
+# directory, so an interactive account can only delete the tree by first
+# assuming the owning uid/gid. Both default to the current owner of TARGET and
+# can be overridden when the tree predates a uid change.
+resolve_state_owner() {
+  if [[ -z "${STATE_UID:-}" ]]; then
+    STATE_UID="$(stat -c '%u' -- "${TARGET}")"
+  fi
+  if [[ -z "${STATE_GID:-}" ]]; then
+    STATE_GID="$(stat -c '%g' -- "${TARGET}")"
+  fi
+
+  if [[ ! "${STATE_UID}" =~ ^[0-9]+$ || ! "${STATE_GID}" =~ ^[0-9]+$ ]]; then
+    echo "Invalid state owner: uid=${STATE_UID} gid=${STATE_GID}" >&2
+    exit 1
+  fi
+}
+
+remove_run_state() {
+  if [[ "$(id -u)" == "${STATE_UID}" && "$(id -g)" == "${STATE_GID}" ]]; then
+    rm -rf --one-file-system -- "${TARGET}"
+    return
+  fi
+
+  # setpriv rather than sudo -u '#<uid>': the state owner has no passwd entry
+  # on the cluster hosts, so sudo rejects it as an unknown user. Dropping
+  # straight to the owning uid also keeps the removal unable to touch anything
+  # outside the tree it owns.
+  if ! command -v setpriv >/dev/null 2>&1; then
+    echo "setpriv is required to delete state owned by uid ${STATE_UID}" >&2
+    exit 1
+  fi
+  if ! sudo -n true 2>/dev/null; then
+    echo "Passwordless sudo is required to assume uid ${STATE_UID}" >&2
+    exit 1
+  fi
+
+  sudo -n setpriv \
+    --reuid="${STATE_UID}" \
+    --regid="${STATE_GID}" \
+    --clear-groups \
+    rm -rf --one-file-system -- "${TARGET}"
+}
+
 show_status() {
   echo "run_id=${RUN_ID}"
   echo "target=${TARGET}"
@@ -92,10 +137,13 @@ case "${ACTION}" in
     fi
 
     assert_cluster_idle
-    rm -rf --one-file-system -- "${TARGET}"
+    resolve_state_owner
+    echo "state_owner=${STATE_UID}:${STATE_GID}"
+    remove_run_state
 
     if [[ -e "${TARGET}" ]]; then
-      echo "Failed to remove ${TARGET}" >&2
+      echo "Failed to remove ${TARGET}; it may be partially deleted." >&2
+      echo "Do not restore from it. Re-run this command or use a new RUN_ID." >&2
       exit 1
     fi
     echo "Deleted complete run state: ${TARGET}"
