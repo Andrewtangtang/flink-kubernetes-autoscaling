@@ -201,5 +201,6 @@ Stopping or deleting the FlinkDeployment does not automatically delete the
 run directory because checkpoints are externalized with
 `RETAIN_ON_CANCELLATION`. Never delete `chk-*`, `_metadata`, or `shared/`
 individually. After evidence is archived and no deployment can restore this
-run, the entire `runs/${RUN_ID}` directory may be removed as one unit; cleanup
-is intentionally manual and is not performed by these scripts.
+run, inspect and remove the entire `runs/${RUN_ID}` directory with
+`cleanup-run-state.sh`; it requires an exact run-ID confirmation and refuses
+to operate while any FlinkDeployment or Flink pod exists.

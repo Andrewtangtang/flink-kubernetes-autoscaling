@@ -48,6 +48,9 @@
 - [x] Moved the shared Flink and Prometheus forwards to 18082 and 19091 after
   confirming c165 port 8081 is the long-running kube-state-metrics telemetry
   endpoint. Monitoring and evidence tools share the same overridable defaults.
+- [x] Added guarded whole-run NFS cleanup for intentional `RUN_ID` reuse. It
+  fails closed unless Kubernetes is reachable, no FlinkDeployment or Flink pod
+  exists, and the caller repeats the exact run ID.
 
 ## Pending Validation
 

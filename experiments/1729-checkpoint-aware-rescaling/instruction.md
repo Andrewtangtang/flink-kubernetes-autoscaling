@@ -1,46 +1,192 @@
-# Checkpoint-Aware Query Run Instructions
+# Checkpoint-Aware Benchmark Instructions
 
-This run uses at most five terminals on c165. Unlike the historical replay
-experiment, it keeps Kafka and the producer running across each rescale and
-restores Flink state and Kafka offsets from a completed checkpoint.
+This runbook has two independent parts:
 
-Do **not** run `scaling-kafka-coordinator.py` in this experiment.
+- **Part A — Build and deploy software:** run only after code or image changes.
+- **Part B — Run a benchmark:** run once for every query/policy experiment.
 
-## Shared environment
+Do not rebuild images while a benchmark is running. Do not run
+`scaling-kafka-coordinator.py`; checkpoint-aware rescaling keeps Kafka and the
+producer live while Flink restores state and offsets.
 
-Open every terminal with agent forwarding and use the same policy and run ID:
+## Part A: Build and deploy software
+
+Use one c165 terminal for this entire part. Part A does not need a query,
+policy, or run ID.
+
+### A1. Update the repository
+
+Stop if the first command reports local changes:
 
 ```bash
 ssh -A c165
 cd ~/flink-kubernetes-autoscaling
 
-export POLICY=justin
-export QUERY=q20
-export RUN_ID=20260811-q20-justin-integrated-01
+git status --short
+git fetch origin
+git switch benchmark-checkpoint-rescaling
+git pull --ff-only
+git submodule sync --recursive
+git submodule update --init --recursive
 
-source experiments/1729-checkpoint-aware-rescaling/run-env.sh
+git log -3 --oneline
+git submodule status \
+  sources/operators/flink-kubernetes-operator-justin
 ```
 
-`RUN_ID` must be new for every independent run. Do not reuse an ID whose NFS
-state directory may already exist. Use `POLICY=ds2` and a different run ID for
-the matched DS2 run. `QUERY` may be `q4`, `q9`, `q18`, `q19`, or `q20`; every
-terminal in one run must use the same value.
+The operator submodule must point to the commit recorded by the outer branch.
 
-## Terminal 1: clean, deploy, then start the producer
+### A2. Load build settings
 
-Pull the latest host-side scripts:
+These settings select dedicated images and the Justin operator source without
+creating benchmark run state:
 
 ```bash
-git pull --ff-only
+export KUBECONFIG=/etc/flink-kubernetes-autoscaling/kubeconfig
+export FLINK_RUNTIME_IMAGE_TAG=benchmark-checkpoint-rescale
+export FLINK_BENCHMARK_IMAGE_TAG=benchmark-checkpoint-rescale
+export OPERATOR_IMAGE_TAG=benchmark-checkpoint-rescale
+export OPERATOR_SOURCE_DIR=sources/operators/flink-kubernetes-operator-justin
+unset HELM_CHART
 
-export POLICY=justin
-export QUERY=q20
-export RUN_ID=20260811-q20-justin-integrated-01
+source scripts/env.sh
+
+printf 'kubeconfig=%s\nruntime=%s\nbenchmark=%s\noperator_source=%s\noperator=%s\n' \
+  "${KUBECONFIG}" \
+  "${FLINK_RUNTIME_IMAGE}" \
+  "${FLINK_BENCHMARK_IMAGE}" \
+  "${OPERATOR_SOURCE_DIR}" \
+  "${OPERATOR_IMAGE}"
+
+test "${KUBECONFIG}" = /etc/flink-kubernetes-autoscaling/kubeconfig
+test "${OPERATOR_SOURCE_DIR}" = sources/operators/flink-kubernetes-operator-justin
+test "${OPERATOR_IMAGE_TAG}" = benchmark-checkpoint-rescale
+```
+
+If the shell or tmux session changes, repeat A2 before continuing.
+
+### A3. Build the images
+
+```bash
+sudo bash images/flink-runtime/build.sh \
+  --source-dir "${FLINK_RUNTIME_SOURCE_DIR}" \
+  --tag "${FLINK_RUNTIME_IMAGE_TAG}"
+
+sudo bash images/flink-benchmark-runtime/build.sh \
+  --runtime-image "${FLINK_RUNTIME_LOCAL}" \
+  --tag "${FLINK_BENCHMARK_IMAGE_TAG}"
+
+sudo bash images/flink-kubernetes-operator/build.sh \
+  --source-dir "${OPERATOR_SOURCE_DIR}" \
+  --tag "${OPERATOR_IMAGE_TAG}"
+```
+
+Confirm all three local images exist:
+
+```bash
+sudo docker image inspect \
+  "${FLINK_RUNTIME_LOCAL}" \
+  "${FLINK_BENCHMARK_LOCAL}" \
+  "${OPERATOR_LOCAL}" \
+  --format '{{.Id}} {{.RepoTags}}'
+```
+
+### A4. Push and pre-pull the images
+
+```bash
+sudo docker tag "${FLINK_RUNTIME_LOCAL}" "${FLINK_RUNTIME_IMAGE}"
+sudo docker push "${FLINK_RUNTIME_IMAGE}"
+
+sudo docker tag "${FLINK_BENCHMARK_LOCAL}" "${FLINK_BENCHMARK_IMAGE}"
+sudo docker push "${FLINK_BENCHMARK_IMAGE}"
+
+sudo docker tag "${OPERATOR_LOCAL}" "${OPERATOR_IMAGE}"
+sudo docker push "${OPERATOR_IMAGE}"
+
+scripts/autoscaling/cluster-management/05-prepull-images.sh \
+  --target-host c153
+```
+
+### A5. Deploy and verify the operator
+
+Rerun A2 first if this is a new shell. Then deploy:
+
+```bash
+scripts/autoscaling/cluster-management/04-deploy-operator.sh
+
+kubectl rollout status deployment/flink-kubernetes-operator \
+  --namespace default \
+  --timeout=180s
+
+kubectl get deployment flink-kubernetes-operator \
+  --namespace default \
+  -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{"  "}{.image}{"\n"}{end}'
+```
+
+The deploy command must use the chart under
+`sources/operators/flink-kubernetes-operator-justin`. Both reported container
+images must end in `flink-kubernetes-operator:benchmark-checkpoint-rescale`.
+
+Part A is now complete. Do not repeat it for every benchmark run unless code
+or image contents changed.
+
+## Part B: Run one benchmark
+
+Part B uses at most five c165 terminals. Every terminal must independently
+load the same query, policy, and run ID. Part B does not build or push images.
+
+### B1. Shared environment for every terminal
+
+```bash
+ssh -A c165
+cd ~/flink-kubernetes-autoscaling
+
+export QUERY=q20       # q4, q9, q18, q19, or q20
+export POLICY=justin   # justin or ds2
+export RUN_ID=20260811-q20-justin-01
+
 source experiments/1729-checkpoint-aware-rescaling/run-env.sh
 ```
 
-Stop the previous producer, forwards, and Flink job. This does not reset Kafka
-or delete retained NFS checkpoint state:
+Use a new `RUN_ID` for every independent run. Never reuse an ID whose NFS
+state directory may still exist. Use a different ID for the matched DS2 run.
+If an old ID must be reused, follow B2 before resetting Kafka or deploying.
+
+### B2. Optional: remove retained state before reusing a run ID
+
+Skip this section when using a new `RUN_ID`. For reuse, first inspect the
+complete run directory:
+
+```bash
+experiments/1729-checkpoint-aware-rescaling/cleanup-run-state.sh status
+```
+
+Archive any required evidence, stop the old FlinkDeployment, and wait for all
+Flink pods to disappear:
+
+```bash
+scripts/autoscaling/job-management/stop-job.sh flink || true
+kubectl wait --for=delete flinkdeployment/flink --timeout=180s 2>/dev/null || true
+kubectl get flinkdeployments --all-namespaces
+kubectl get pods --all-namespaces -l app=flink
+```
+
+Only when both final commands are empty, delete the whole run-scoped
+checkpoint/savepoint/HA directory with an exact ID confirmation:
+
+```bash
+experiments/1729-checkpoint-aware-rescaling/cleanup-run-state.sh \
+  delete --confirm-run-id "${RUN_ID}"
+```
+
+The helper refuses deletion if it cannot reach Kubernetes or finds any
+FlinkDeployment or Flink pod. Never delete individual `chk-*`, `_metadata`,
+`shared`, `savepoints`, or `ha` entries because incremental checkpoints may
+reference shared files.
+
+### Terminal 1: clean, deploy the job, and start the producer
+
+Stop any previous run. This does not delete retained checkpoint state:
 
 ```bash
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh stop || true
@@ -52,71 +198,56 @@ kubectl get flinkdeployments
 kubectl get pods -l app=flink
 ```
 
-After the old deployment and pods disappear, reset Kafka once, render the
-run-specific manifest, validate it, and deploy it:
+Reset Kafka once, render the selected independent manifest, validate it, and
+deploy the consumer job:
 
 ```bash
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-external-kafka.sh reset
 
 experiments/1729-checkpoint-aware-rescaling/render-job.sh
 
+grep -E 'image:|upgradeMode:|state.checkpoints.dir:' \
+  "${RENDERED_MANIFEST}"
 kubectl apply --dry-run=server -f "${RENDERED_MANIFEST}"
 kubectl apply -f "${RENDERED_MANIFEST}"
 
 kubectl get flinkdeployment flink -w
 ```
 
-Wait for `JOB STATUS=RUNNING` and `LIFECYCLE STATE=STABLE`, then press `Ctrl-C`.
-Do not start the producer until terminals 3, 4, and 5 are observing the job.
+The rendered image must be `benchmark-checkpoint-rescale`, upgrade mode must
+be `last-state`, and checkpoint storage must contain `${RUN_ID}`. Wait for
+`JOB STATUS=RUNNING` and `LIFECYCLE STATE=STABLE`, then press `Ctrl-C`.
 
-Once those terminals are ready, start the bounded producer exactly once:
+Do not start the producer until terminals 3, 4, and 5 are observing the job.
+Once they are ready, start the bounded producer exactly once:
 
 ```bash
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh start
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh logs
 ```
 
-## Terminal 2: observe the deployment and pods
+The helper lives under the Q20 experiment for historical reasons but produces
+the shared Kafka input used by all five queries.
+
+### Terminal 2: observe the deployment and pods
 
 ```bash
 watch -n 5 \
   'kubectl get flinkdeployment flink; kubectl get pods -l app=flink -o wide'
 ```
 
-During checkpoint-gated rescaling, the deployment should remain present while
-the execution graph changes and TaskManager resources are adjusted.
+The FlinkDeployment remains present while the execution graph and TaskManager
+resources change.
 
-## Terminal 3: live Flink and Prometheus metrics
+### Terminal 3: observe live Flink and Prometheus metrics
 
-c165 port 8081 is the long-running `kube-state-metrics` telemetry port, so the
-shared helper uses local port 18082 for Flink and 19091 for Prometheus.
-
-Start the forwards in the background:
+c165 port 8081 belongs to `kube-state-metrics`. The helper therefore uses
+18082 for Flink, 19091 for Prometheus, and 3001 for Grafana:
 
 ```bash
 scripts/autoscaling/job-monitoring/port-forward.sh start
 scripts/autoscaling/job-monitoring/port-forward.sh status
 
-sleep 2
-
-curl -s http://localhost:18082/jobs/overview |
-  jq '.jobs[] | {name, state}'
-curl -sf http://localhost:19091/-/ready
-```
-
-Ports 18082, 19091, and 3001 were confirmed free on c165. If that changes,
-override them before `start`, for example:
-
-```bash
-export FLINK_LOCAL_PORT=28082
-export PROMETHEUS_LOCAL_PORT=29091
-export GRAFANA_LOCAL_PORT=23001
-scripts/autoscaling/job-monitoring/port-forward.sh start
-```
-
-The first command must show the current `${QUERY}` job. Then start the live monitor:
-
-```bash
 scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
   --interval 5 \
   --rate-window 30s \
@@ -125,20 +256,27 @@ scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
   --source-event-share "${SOURCE_EVENT_SHARE}"
 ```
 
-This terminal shows source throughput, replay progress, TaskManager CPU and
-memory, and per-subtask busy and record rates.
+`start` waits until both Flink REST and Prometheus respond. If Flink REST is
+still starting and the underlying kubectl process exits, the helper retries
+until `PORT_FORWARD_READY_TIMEOUT` (60 seconds by default). Forwards are
+detached from the current tmux pane, and `stop` only terminates PIDs previously
+created and recorded by this helper; it does not use a broad `pkill`.
 
-## Terminal 4: observe checkpoint-rescale transactions
+If a local port becomes occupied, set `FLINK_LOCAL_PORT`,
+`PROMETHEUS_LOCAL_PORT`, or `GRAFANA_LOCAL_PORT` before starting the helper.
+The observers use the same environment variables.
+
+### Terminal 4: observe checkpoint-rescale transactions
 
 ```bash
 experiments/1729-checkpoint-aware-rescaling/observe-checkpoint-rescale.py \
   --interval 5
 ```
 
-This terminal shows the durable transaction phase, checkpoint ID, frozen
-target, restore verification, restart duration, and any latched failure.
+This shows the transaction phase, checkpoint ID, frozen target, restore
+verification, restart duration, and latched failures.
 
-## Terminal 5: observe autoscaler decisions
+### Terminal 5: observe autoscaler decisions
 
 ```bash
 scripts/autoscaling/job-monitoring/observe-scaling.py \
@@ -146,25 +284,30 @@ scripts/autoscaling/job-monitoring/observe-scaling.py \
   --follow
 ```
 
-It must print the algorithm selected by `${POLICY}`. Start the producer in
-terminal 1 only after this observer and terminals 3 and 4 are ready.
+It must report the algorithm selected by `${POLICY}`.
 
-## Expected behavior during a rescale
+### Expected rescale sequence
 
 ```text
-Justin decision
+Justin or DS2 decision
   -> fresh checkpoint triggered and completed
-  -> target parallelism/memory applied
+  -> target parallelism and optional memory applied
   -> execution graph rebuilt from checkpoint state
   -> Kafka sources resume from checkpointed offsets
   -> accumulated Kafka backlog is drained
 ```
 
-Kafka topics and the producer must remain live throughout this sequence.
+Kafka topics and the producer remain live throughout this sequence. If a
+transaction enters `FAILED`, preserve the job and inspect it before retrying:
 
-## Save evidence before stopping
+```bash
+experiments/1729-checkpoint-aware-rescaling/manage-transaction.sh status
+experiments/1729-checkpoint-aware-rescaling/manage-transaction.sh retry
+```
 
-Keep terminal 3 and both port-forwards alive while collecting evidence:
+### Save evidence before stopping
+
+Keep terminal 3 and the port-forwards alive:
 
 ```bash
 experiments/1724-kafka-q20-unique/analysis/export-experiment-data.py \
@@ -176,7 +319,7 @@ FLINK_URL=http://localhost:18082 \
   experiments/1729-checkpoint-aware-rescaling/collect-evidence.sh
 ```
 
-## Stop the run
+### Stop the run
 
 After evidence has been saved:
 
@@ -184,10 +327,9 @@ After evidence has been saved:
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh stop
 scripts/autoscaling/job-management/stop-job.sh flink
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-external-kafka.sh stop
-
 scripts/autoscaling/job-monitoring/port-forward.sh stop
 ```
 
-Retained external checkpoint data under `${RUN_STORAGE_ROOT}` is not deleted by
-this stop sequence. Remove a complete run directory only after its evidence is
-archived and no deployment can restore from it.
+This does not delete retained state under `${RUN_STORAGE_ROOT}`. Remove a
+complete run directory only after evidence is archived and no deployment can
+restore from it.
