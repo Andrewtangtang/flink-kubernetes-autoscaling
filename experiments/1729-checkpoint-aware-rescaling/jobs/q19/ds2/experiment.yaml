@@ -1,0 +1,197 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink
+spec:
+  flinkConfiguration:
+    cluster.evenly-spread-out-slots: "true"
+    execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+    execution.checkpointing.interval: 60s
+    execution.checkpointing.min-pause: 30s
+    execution.checkpointing.timeout: 5m
+    execution.checkpointing.max-concurrent-checkpoints: "1"
+    execution.checkpointing.mode: EXACTLY_ONCE
+    state.checkpoints.dir: file:///mnt/experiments/autoscaling-experiments/flink-state/runs/__RUN_ID__/checkpoints
+    state.savepoints.dir: file:///mnt/experiments/autoscaling-experiments/flink-state/runs/__RUN_ID__/savepoints
+    state.backend.incremental: "true"
+    high-availability: org.apache.flink.kubernetes.highavailability.KubernetesHaServicesFactory
+    high-availability.storageDir: file:///mnt/experiments/autoscaling-experiments/flink-state/runs/__RUN_ID__/ha
+    job.autoscaler.cache-hit-rate.min.threshold: "0.85"
+    job.autoscaler.enabled: "true"
+    job.autoscaler.justin.enabled: "false"
+    job.autoscaler.memory.max-level: "4"
+    job.autoscaler.metrics.window: 2m
+    job.autoscaler.checkpoint-rescale.enabled: "true"
+    job.autoscaler.checkpoint-rescale.checkpoint-timeout: 5m
+    job.autoscaler.checkpoint-rescale.restore-timeout: 10m
+    job.autoscaler.restart.time: 1m
+    job.autoscaler.restart.time-tracking.enabled: "true"
+    job.autoscaler.restart.time-tracking.limit: 10m
+    job.autoscaler.catch-up.duration: 30m
+    job.autoscaler.scaling-config.history.max.count: "100"
+    job.autoscaler.stabilization.interval: 3m
+    job.autoscaler.state-latency.threshold: "1000000.0"
+    job.autoscaler.target.utilization: "0.8"
+    job.autoscaler.target.utilization.boundary: "0.3"
+    job.autoscaler.vertex.exclude.ids: cbc357ccb763df2852fee8c4fc7d55f2
+    job.autoscaler.vertex.max-parallelism: "12"
+    jobmanager.scheduler: adaptive
+    metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporters: prom
+    pipeline.jobvertex-parallelism-overrides: cbc357ccb763df2852fee8c4fc7d55f2:1,90bea66de1c231edf33913ecd54406c1:1
+    pipeline.max-parallelism: "360"
+    state.backend: rocksdb
+    state.backend.latency-track.keyed-state-enabled: "true"
+    state.backend.local-recovery: "true"
+    state.backend.rocksdb.localdir: /data/flink/rocksdb
+    state.backend.rocksdb.memory.managed: "false"
+    state.backend.rocksdb.metrics.block-cache-capacity: "true"
+    state.backend.rocksdb.metrics.block-cache-hit: "true"
+    state.backend.rocksdb.metrics.block-cache-miss: "true"
+    state.backend.rocksdb.metrics.block-cache-pinned-usage: "true"
+    state.backend.rocksdb.metrics.block-cache-usage: "true"
+    state.backend.rocksdb.metrics.bytes-read: "true"
+    state.backend.rocksdb.metrics.bytes-written: "true"
+    state.backend.rocksdb.metrics.column-family-as-variable: "true"
+    state.backend.rocksdb.metrics.compaction-pending: "true"
+    state.backend.rocksdb.metrics.compaction-read-bytes: "true"
+    state.backend.rocksdb.metrics.compaction-write-bytes: "true"
+    state.backend.rocksdb.metrics.cur-size-active-mem-table: "true"
+    state.backend.rocksdb.metrics.cur-size-all-mem-tables: "true"
+    state.backend.rocksdb.metrics.estimate-live-data-size: "true"
+    state.backend.rocksdb.metrics.estimate-num-keys: "true"
+    state.backend.rocksdb.metrics.estimate-pending-compaction-bytes: "true"
+    state.backend.rocksdb.metrics.estimate-table-readers-mem: "true"
+    state.backend.rocksdb.metrics.iter-bytes-read: "true"
+    state.backend.rocksdb.metrics.live-sst-files-size: "true"
+    state.backend.rocksdb.metrics.num-files-at-level0: "true"
+    state.backend.rocksdb.metrics.num-files-at-level1: "true"
+    state.backend.rocksdb.metrics.num-files-at-level2: "true"
+    state.backend.rocksdb.metrics.num-immutable-mem-table: "true"
+    state.backend.rocksdb.metrics.num-live-versions: "true"
+    state.backend.rocksdb.metrics.size-all-mem-tables: "true"
+    state.backend.rocksdb.metrics.total-sst-files-size: "true"
+    state.backend.rocksdb.options-factory: com.example.CustomRocksDBOptionsFactoryKubernetesJustin
+    state.backend.rocksdb.use-direct-reads: "true"
+    state.backend.rocksdb.use-direct-writes: "true"
+    taskmanager.cpu.cores: "8"
+    taskmanager.memory.managed.size: 1264m
+    taskmanager.numberOfTaskSlots: "8"
+    web.cancel.enable: "true"
+    web.submit.enable: "true"
+  flinkVersion: v1_18
+  image: 142.150.234.165:5000/flink-benchmark-runtime:benchmark-checkpoint-rescale
+  imagePullPolicy: Always
+  job:
+    args:
+    - --query
+    - q19_unique
+    - --job-name
+    - q19_unique-checkpoint-aware-ds2-__RUN_ID__
+    - --source
+    - kafka
+    - --bootstrap-servers
+    - kafka-external:9092
+    entryClass: com.github.nexmark.flink.sql.SqlQueryJob
+    jarURI: local:///opt/flink/lib/nexmark-flink-0.3-SNAPSHOT.jar
+    parallelism: 1
+    upgradeMode: last-state
+  jobManager:
+    podTemplate:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: job-manager-pod-template
+      spec:
+        nodeSelector:
+          tier: jobmanager
+    resource:
+      cpu: 1
+      memory: 2048m
+  logConfiguration:
+    log4j-console.properties: |
+      rootLogger.level = DEBUG
+      rootLogger.appenderRef.file.ref = LogFile
+      rootLogger.appenderRef.console.ref = LogConsole
+      appender.file.name = LogFile
+      appender.file.type = File
+      appender.file.append = false
+      appender.file.fileName = ${sys:log.file}
+      appender.file.layout.type = PatternLayout
+      appender.file.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
+      appender.console.name = LogConsole
+      appender.console.type = CONSOLE
+      appender.console.layout.type = PatternLayout
+      appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
+      logger.akka.name = akka
+      logger.akka.level = INFO
+      logger.kafka.name = org.apache.kafka
+      logger.kafka.level = INFO
+      logger.hadoop.name = org.apache.hadoop
+      logger.hadoop.level = INFO
+      logger.zookeeper.name = org.apache.zookeeper
+      logger.zookeeper.level = INFO
+      logger.netty.name = org.apache.flink.shaded.akka.org.jboss.netty.channel.DefaultChannelPipeline
+      logger.netty.level = OFF
+      log4j.logger.org.apache.http.wire = OFF
+      log4j.logger.org.apache.http.headers = OFF
+      logger.http.name = org.apache.http
+      logger.http.level = OFF
+      logger.aws.name = com.amazonaws
+      logger.aws.level = OFF
+  podTemplate:
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: pod-template
+    spec:
+      containers:
+      - name: flink-main-container
+        ports:
+        - containerPort: 9249
+          name: prom
+        volumeMounts:
+        - mountPath: /mnt/experiments/autoscaling-experiments/flink-state
+          name: checkpoint-storage
+      volumes:
+      - hostPath:
+          path: /mnt/experiments/autoscaling-experiments/flink-state
+          type: DirectoryOrCreate
+        name: checkpoint-storage
+  serviceAccount: flink
+  taskManager:
+    podTemplate:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: task-manager-pod-template
+      spec:
+        containers:
+        - name: flink-main-container
+          volumeMounts:
+          - mountPath: /mnt/experiments/autoscaling-experiments/flink-state
+            name: checkpoint-storage
+          - mountPath: /data/flink/rocksdb
+            name: rocksdb-ssd
+        nodeSelector:
+          tier: taskmanager
+        topologySpreadConstraints:
+        - labelSelector:
+            matchLabels:
+              app: flink
+              component: taskmanager
+          maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+        volumes:
+        - hostPath:
+            path: /mnt/experiments/autoscaling-experiments/flink-state
+            type: DirectoryOrCreate
+          name: checkpoint-storage
+        - hostPath:
+            path: /data/flink/rocksdb
+            type: DirectoryOrCreate
+          name: rocksdb-ssd
+    resource:
+      cpu: 8
+      memory: 3072m

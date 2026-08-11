@@ -37,8 +37,10 @@ ACTIVE_JOB_STATES = {
     "INITIALIZING",
     "RECONCILING",
 }
-DEFAULT_PROMETHEUS_URL = "http://localhost:9091"
-DEFAULT_FLINK_URL = "http://localhost:8081"
+DEFAULT_PROMETHEUS_URL = (
+    f"http://localhost:{os.environ.get('PROMETHEUS_LOCAL_PORT', '19091')}"
+)
+DEFAULT_FLINK_URL = f"http://localhost:{os.environ.get('FLINK_LOCAL_PORT', '18082')}"
 DEFAULT_NAMESPACE = "default"
 DEFAULT_INTERVAL_SECONDS = 5.0
 DEFAULT_RATE_WINDOW = "30s"
