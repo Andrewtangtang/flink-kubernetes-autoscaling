@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+
+# This file is a sourced environment library. Preserve the caller's shell
+# options; executable callers enable their own strict mode before sourcing it.
 
 export CLUSTER_CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export CLUSTER_ROOT="$(cd "${CLUSTER_CONFIG_DIR}/.." && pwd)"

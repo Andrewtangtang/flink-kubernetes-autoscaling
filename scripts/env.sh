@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-set -euo pipefail
+
+# This file is sourced by both executable scripts and interactive shells.
+# Do not change the caller's shell options here; executable callers enable
+# their own strict mode before sourcing this environment.
 
 export REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

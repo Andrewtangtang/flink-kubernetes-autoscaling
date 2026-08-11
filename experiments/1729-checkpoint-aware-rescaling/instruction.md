@@ -114,6 +114,11 @@ Rerun A2 first if this is a new shell. Then deploy:
 ```bash
 scripts/autoscaling/cluster-management/04-deploy-operator.sh
 
+# The image tag is intentionally reused. Force a new pod so Always pulls the
+# registry image that was just pushed.
+kubectl rollout restart deployment/flink-kubernetes-operator \
+  --namespace default
+
 kubectl rollout status deployment/flink-kubernetes-operator \
   --namespace default \
   --timeout=180s
@@ -121,11 +126,39 @@ kubectl rollout status deployment/flink-kubernetes-operator \
 kubectl get deployment flink-kubernetes-operator \
   --namespace default \
   -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{"  "}{.image}{"\n"}{end}'
+
+OPERATOR_POD="$(kubectl get pods \
+  --namespace default \
+  -l app.kubernetes.io/name=flink-kubernetes-operator \
+  -o jsonpath='{.items[0].metadata.name}')"
+
+RUNNING_DIGEST="$(kubectl get pod "${OPERATOR_POD}" \
+  --namespace default \
+  -o json | jq -r \
+  '.status.containerStatuses[] | select(.name == "flink-kubernetes-operator") | .imageID' | \
+  sed 's/.*@//')"
+
+REGISTRY_DIGEST="$(curl -fsSI \
+  -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+  "http://${REGISTRY}/v2/${OPERATOR_IMAGE_NAME}/manifests/${OPERATOR_IMAGE_TAG}" | \
+  grep -i '^Docker-Content-Digest:' | awk '{print $2}' | tr -d '\r')"
+
+printf 'running=%s\nregistry=%s\n' \
+  "${RUNNING_DIGEST}" "${REGISTRY_DIGEST}"
+
+if [[ -n "${RUNNING_DIGEST}" && "${RUNNING_DIGEST}" == "${REGISTRY_DIGEST}" ]]; then
+  echo "Operator image digest verified"
+else
+  echo "Operator image digest mismatch; do not start the benchmark" >&2
+fi
 ```
 
 The deploy command must use the chart under
 `sources/operators/flink-kubernetes-operator-justin`. Both reported container
 images must end in `flink-kubernetes-operator:benchmark-checkpoint-rescale`.
+Because this workflow reuses that mutable tag, `rollout restart` is required
+after every push. Do not continue to Part B unless the running and registry
+digests are non-empty and identical.
 
 Part A is now complete. Do not repeat it for every benchmark run unless code
 or image contents changed.
