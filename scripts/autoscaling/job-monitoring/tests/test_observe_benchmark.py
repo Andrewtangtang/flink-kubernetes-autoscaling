@@ -3,6 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 SCRIPT = Path(__file__).resolve().parents[1] / "observe-benchmark.py"
 SPEC = importlib.util.spec_from_file_location("observe_benchmark", SCRIPT)
@@ -30,6 +31,12 @@ error: null
 
     @patch.object(observe_benchmark, "get_json")
     def test_reads_producer_source_rate(self, get_json) -> None:
+        source_rates = {
+            "person-source": [300.0] * 4,
+            "auction-source": [1_800.0] * 4,
+            "bid-source": [12_900.0] * 4,
+        }
+
         def response(url: str):
             if url.endswith("/jobs/overview"):
                 return {
@@ -45,12 +52,37 @@ error: null
             if url.endswith("/jobs/producer-id"):
                 return {
                     "vertices": [
-                        {"id": "source-id", "name": "Source: Nexmark"},
+                        {"id": vertex_id, "name": f"Source: {vertex_id}"}
+                        for vertex_id in source_rates
+                    ]
+                    + [
                         {"id": "sink-id", "name": "Sink: Kafka"},
                     ]
                 }
-            if "/vertices/source-id/metrics?" in url:
-                return [{"id": "numRecordsOutPerSecond", "sum": "60000"}]
+            parsed = urlparse(url)
+            for vertex_id, rates in source_rates.items():
+                if parsed.path.endswith(f"/vertices/{vertex_id}/metrics"):
+                    metric_names = [
+                        f"{index}.Source__{vertex_id}[1].numRecordsOutPerSecond"
+                        for index in range(len(rates))
+                    ]
+                    if not parsed.query:
+                        return [
+                            {"id": name} for name in metric_names
+                        ] + [
+                            {
+                                "id": (
+                                    f"0.Sink__{vertex_id}[2]."
+                                    "numRecordsOutPerSecond"
+                                )
+                            }
+                        ]
+                    requested = parse_qs(parsed.query)["get"][0].split(",")
+                    self.assertEqual(metric_names, sorted(requested))
+                    return [
+                        {"id": name, "value": str(rate)}
+                        for name, rate in zip(metric_names, rates)
+                    ]
             self.fail(f"unexpected URL: {url}")
 
         get_json.side_effect = response
@@ -59,6 +91,42 @@ error: null
 
         self.assertTrue(producer.active)
         self.assertEqual(60_000.0, producer.rate)
+
+    @patch.object(observe_benchmark, "get_json")
+    def test_does_not_use_chained_sink_rate_as_producer_rate(self, get_json) -> None:
+        def response(url: str):
+            if url.endswith("/jobs/overview"):
+                return {
+                    "jobs": [
+                        {
+                            "jid": "producer-id",
+                            "name": "insert_kafka_unique",
+                            "state": "RUNNING",
+                            "start-time": 1,
+                        }
+                    ]
+                }
+            if url.endswith("/jobs/producer-id"):
+                return {
+                    "vertices": [{"id": "source-id", "name": "Source: Nexmark"}]
+                }
+            if url.endswith("/vertices/source-id/metrics"):
+                return [
+                    {
+                        "id": (
+                            "0.Kafka_Writer__nexmark[2]."
+                            "numRecordsOutPerSecond"
+                        )
+                    }
+                ]
+            self.fail(f"unexpected URL: {url}")
+
+        get_json.side_effect = response
+
+        producer = observe_benchmark.producer_state("http://producer")
+
+        self.assertTrue(producer.active, producer.error)
+        self.assertIsNone(producer.rate)
 
 
 class StabilityTrackerTest(unittest.TestCase):

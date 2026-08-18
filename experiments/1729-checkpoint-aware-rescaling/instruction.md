@@ -337,6 +337,9 @@ when checkpoint rescaling recreates the execution graph. If those metrics are
 temporarily unavailable, the observer labels its current-attempt task counter
 as a fallback; do not use that fallback as final completion evidence.
 
+During initial warm-up, `StateLat` can briefly read `0.0` before Flink lazily
+registers the state-latency histogram. See "State-latency warm-up" below.
+
 ### Expected rescale sequence
 
 ```text
@@ -355,6 +358,28 @@ transaction enters `FAILED`, preserve the job and inspect it before retrying:
 experiments/1729-checkpoint-aware-rescaling/manage-transaction.sh status
 experiments/1729-checkpoint-aware-rescaling/manage-transaction.sh retry
 ```
+
+### State-latency warm-up
+
+Justin's decision blocks can report `StateLat=0.0` for a stateful vertex whose
+state latency Flink is measuring normally. Confirmed on the Q20 Join, where
+Flink reported `valueStateGetLatency_p90` around 19,000 ns while the scaler
+recorded `0.0`.
+
+The cause is metric-name resolution order, not a missing metric. Flink registers
+latency-tracking histograms lazily on the first tracked state access. Because
+the job reaches `RUNNING` before the producer starts, the first metric-name
+query can occur before any `*StateGetLatency_p90` metric exists. RocksDB
+block-cache metrics register earlier, which is why `CacheHit` may already have
+a value in the same decision block.
+
+The collector now re-queries a RocksDB-backed vertex whose state-get latency
+metric has not appeared yet, then caches the complete mapping after discovery.
+Required base metrics still fail closed, while optional Justin state metrics
+may register later. A warm-up `0.0` must therefore be treated as unavailable;
+later decision periods should become nonzero without restarting the Operator.
+If they do not, preserve the Operator logs and Flink metric-name response rather
+than interpreting zero as a measured latency below the 1 ms threshold.
 
 ### Save evidence before stopping
 

@@ -13,6 +13,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import time
@@ -43,6 +44,9 @@ def load_sibling(module_name: str, filename: str) -> ModuleType:
 
 
 METRICS = load_sibling("observe_flink_metrics", "observe-flink-metrics.py")
+PRODUCER_SOURCE_RATE_PATTERN = re.compile(
+    r"^(?:\d+\.)?Source__.*\.numRecordsOutPerSecond$"
+)
 
 
 @dataclass(frozen=True)
@@ -487,21 +491,41 @@ def cluster_state(deployment: str, namespace: str, configmap_name: str) -> Clust
     )
 
 
-def metric_sum(base_url: str, job_id: str, vertex_id: str) -> float | None:
-    query = urlencode({"get": "numRecordsOutPerSecond", "agg": "sum"})
-    values = get_json(
-        f"{base_url.rstrip('/')}/jobs/{job_id}/vertices/{vertex_id}/metrics?{query}"
+def producer_source_rate(
+    base_url: str, job_id: str, vertex_id: str
+) -> float | None:
+    metrics_url = (
+        f"{base_url.rstrip('/')}/jobs/{job_id}/vertices/{vertex_id}/metrics"
     )
+    available = get_json(metrics_url)
+    if not isinstance(available, list):
+        return None
+    metric_names = sorted(
+        str(metric["id"])
+        for metric in available
+        if isinstance(metric, dict)
+        and "id" in metric
+        and PRODUCER_SOURCE_RATE_PATTERN.fullmatch(str(metric["id"]))
+    )
+    if not metric_names:
+        return None
+
+    query = urlencode({"get": ",".join(metric_names), "agg": "sum"})
+    values = get_json(f"{metrics_url}?{query}")
     if not isinstance(values, list):
         return None
+    total = 0.0
+    found = False
     for metric in values:
         try:
-            value = float(metric["sum"])
+            raw_value = metric["sum"] if "sum" in metric else metric["value"]
+            value = float(raw_value)
         except (KeyError, TypeError, ValueError):
             continue
         if math.isfinite(value):
-            return value
-    return None
+            total += value
+            found = True
+    return total if found else None
 
 
 def producer_state(base_url: str) -> ProducerState:
@@ -523,7 +547,7 @@ def producer_state(base_url: str) -> ProducerState:
             if str(vertex.get("name", "")).startswith("Source:")
         ]
         rates = [
-            metric_sum(base_url, str(job["jid"]), str(vertex["id"]))
+            producer_source_rate(base_url, str(job["jid"]), str(vertex["id"]))
             for vertex in source_vertices
             if vertex.get("id")
         ]
