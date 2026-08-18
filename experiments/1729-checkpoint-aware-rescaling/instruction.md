@@ -165,8 +165,10 @@ or image contents changed.
 
 ## Part B: Run one benchmark
 
-Part B uses two c165 terminals. Every terminal must independently load the
-same query, policy, and run ID. Part B does not build or push images.
+Part B uses five c165 terminals. Terminal 2 alone decides when the run is
+complete; terminals 3-5 are diagnostic views. Every terminal must
+independently load the same query, policy, and run ID. Part B does not build
+or push images.
 
 ### B1. Shared environment for every terminal
 
@@ -269,8 +271,8 @@ flag must match `${POLICY}`. Applying the manifest is what starts the selected
 scaler. Wait for `JOB STATUS=RUNNING` and `LIFECYCLE STATE=STABLE`, then press
 `Ctrl-C`.
 
-Do not start the producer until terminal 2 is observing the job.
-Once it is ready, start the bounded producer exactly once:
+Do not start the producer until terminals 2 to 5 are observing the job.
+Once they are ready, start the bounded producer exactly once:
 
 ```bash
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh start
@@ -318,8 +320,11 @@ draining, and `FULLY_CAUGHT_UP` when lag is at most two seconds of target input
 and its slope is flat. A stopped producer is
 `INCONCLUSIVE_PRODUCER_STOPPED`, not steady state.
 
-When three consecutive windows pass, the accepted result is latched and the
-observer prints:
+When three consecutive windows pass, the observer first reports a provisional
+`CONFIRMING_STABILITY` candidate. It waits an additional 30-second confirmation
+guard; a new transaction, failed window, or resource change during that guard
+cancels the candidate. Only after the guard does it latch the accepted result
+and print:
 
 ```text
 *** EXPERIMENT END CONDITION REACHED ***
@@ -328,7 +333,9 @@ Save evidence before stopping the producer and Flink job.
 ```
 
 The accepted result remains visible even if the bounded producer finishes
-afterward. Add `--exit-when-stable` when automation should print the banner and
+afterward. If a later rescale occurs, the observer reports
+`STABILITY_REVOKED_BY_RESCALE` as a prior event instead of silently erasing the
+episode. Add `--exit-when-stable` when automation should print the banner and
 exit successfully; the observer never stops the producer or job itself.
 
 The throughput line is a 30-second task-rate average. Replay progress uses
@@ -339,6 +346,39 @@ as a fallback; do not use that fallback as final completion evidence.
 
 During initial warm-up, `StateLat` can briefly read `0.0` before Flink lazily
 registers the state-latency histogram. See "State-latency warm-up" below.
+
+### Terminal 3: observe the deployment and pods
+
+```bash
+watch -n 5 \
+  'kubectl get flinkdeployment flink; kubectl get pods -l app=flink -o wide'
+```
+
+This is the fastest view for pod-level problems such as a TaskManager stuck
+`Pending`, node disk pressure, or an image-pull failure.
+
+### Terminal 4: observe checkpoint-rescale transactions
+
+```bash
+experiments/1729-checkpoint-aware-rescaling/observe-checkpoint-rescale.py \
+  --interval 5
+```
+
+This shows the transaction phase, checkpoint ID, restore verification,
+apply-to-RUNNING duration, and any latched failure.
+
+### Terminal 5: observe autoscaler decisions
+
+```bash
+scripts/autoscaling/job-monitoring/observe-scaling.py \
+  --configmap autoscaler-flink \
+  --follow
+```
+
+This prints each per-period decision, including parallelism, memory level,
+window-average capacity, cache hit rate, state latency, and H/V flags. Keep
+it running for Justin experiments because the memory-level path is visible
+there.
 
 ### Expected rescale sequence
 

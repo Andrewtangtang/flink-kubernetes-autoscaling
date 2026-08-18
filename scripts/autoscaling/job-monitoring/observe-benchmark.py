@@ -132,6 +132,11 @@ class StabilityTracker:
     pass_streak: int = 0
     accepted_status: str | None = None
     accepted_at: float | None = None
+    candidate_status: str | None = None
+    candidate_at: float | None = None
+    confirmation_seconds: float = 30.0
+    last_event: str | None = None
+    last_event_at: float | None = None
 
     def reset(self) -> None:
         self.transaction_key = None
@@ -143,6 +148,8 @@ class StabilityTracker:
         self.pass_streak = 0
         self.accepted_status = None
         self.accepted_at = None
+        self.candidate_status = None
+        self.candidate_at = None
 
     def observe(
         self,
@@ -157,10 +164,16 @@ class StabilityTracker:
             transaction.phase != "COMPLETED"
             or transaction.restored_running_timestamp is None
         ):
+            if self.candidate_status is not None or self.accepted_status is not None:
+                self.last_event = "STABILITY_REVOKED_BY_RESCALE"
+                self.last_event_at = now
             self.reset()
             return
 
         if transaction.key != self.transaction_key:
+            if self.candidate_status is not None or self.accepted_status is not None:
+                self.last_event = "STABILITY_REVOKED_BY_RESCALE"
+                self.last_event_at = now
             self.reset()
             self.transaction_key = transaction.key
             restored_at = transaction.restored_running_timestamp / 1000.0
@@ -191,7 +204,11 @@ class StabilityTracker:
         self._accept_if_complete(now, kafka_lag)
 
     def _accept_if_complete(self, now: float, kafka_lag: float | None) -> None:
-        if self.pass_streak < self.required_windows or kafka_lag is None:
+        if (
+            self.pass_streak < self.required_windows
+            or kafka_lag is None
+            or self.accepted_status is not None
+        ):
             return
         caught_up_limit = self.target_rate * 2.0
         slope_tolerance = self.target_rate * self.lag_growth_tolerance
@@ -206,8 +223,19 @@ class StabilityTracker:
             accepted_status = "CAPACITY_STABLE_CATCHING_UP"
         else:
             accepted_status = "CAPACITY_STABLE_LAG_FLAT"
-        self.accepted_status = accepted_status
-        self.accepted_at = now
+        if self.candidate_status is None:
+            self.candidate_status = accepted_status
+            self.candidate_at = now
+            return
+
+        if (
+            self.candidate_at is not None
+            and now - self.candidate_at >= self.confirmation_seconds
+        ):
+            self.accepted_status = self.candidate_status
+            self.accepted_at = now
+            self.last_event = self.accepted_status
+            self.last_event_at = now
 
     def _close_complete_windows(self, now: float) -> None:
         assert self.stable_start is not None
@@ -225,6 +253,11 @@ class StabilityTracker:
             )
             self.windows.append(result)
             self.pass_streak = self.pass_streak + 1 if result.passed else 0
+            if not result.passed:
+                # A confirmation candidate is provisional; a failed window
+                # must force the tracker to earn all required windows again.
+                self.candidate_status = None
+                self.candidate_at = None
             self.next_window_index += 1
 
         keep_after = (
@@ -318,6 +351,8 @@ class StabilityTracker:
             return "RESCALING"
         if self.accepted_status is not None:
             return self.accepted_status
+        if self.candidate_status is not None:
+            return "CONFIRMING_STABILITY"
         if producer.active is False:
             return "INCONCLUSIVE_PRODUCER_STOPPED"
         if producer.active is None or producer.rate is None:
@@ -638,6 +673,19 @@ def render(
             f"successful windows: {tracker.pass_streak}/{tracker.required_windows}",
         ]
     )
+    if tracker.candidate_status is not None:
+        candidate_at = datetime.fromtimestamp(
+            tracker.candidate_at or now, timezone.utc
+        ).isoformat(timespec="seconds")
+        lines.append(
+            f"Stability candidate: {tracker.candidate_status} at {candidate_at} "
+            f"(confirmation {tracker.confirmation_seconds:.0f}s)"
+        )
+    if tracker.last_event is not None:
+        event_at = datetime.fromtimestamp(
+            tracker.last_event_at or now, timezone.utc
+        ).isoformat(timespec="seconds")
+        lines.append(f"Previous stability event: {tracker.last_event} at {event_at}")
     if tracker.accepted_status is not None:
         accepted_at = datetime.fromtimestamp(
             tracker.accepted_at or now, timezone.utc
@@ -680,6 +728,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stabilization-seconds", type=float, default=60.0)
     parser.add_argument("--window-seconds", type=float, default=120.0)
     parser.add_argument("--required-windows", type=int, default=3)
+    parser.add_argument(
+        "--confirmation-seconds",
+        type=float,
+        default=30.0,
+        help="Guard time after the required windows before confirming stability",
+    )
     parser.add_argument("--input-tolerance", type=float, default=0.05)
     parser.add_argument("--lag-growth-tolerance", type=float, default=0.01)
     parser.add_argument("--summary-only", action="store_true")
@@ -700,7 +754,12 @@ def main() -> int:
         parser.error(
             "--target-rate must be positive; source run-env.sh or pass it explicitly"
         )
-    if args.interval <= 0 or args.stabilization_seconds < 0 or args.window_seconds <= 0:
+    if (
+        args.interval <= 0
+        or args.stabilization_seconds < 0
+        or args.window_seconds <= 0
+        or args.confirmation_seconds < 0
+    ):
         parser.error("interval/window values must be positive")
     if args.required_windows <= 0:
         parser.error("--required-windows must be positive")
@@ -717,6 +776,7 @@ def main() -> int:
         input_tolerance=args.input_tolerance,
         lag_growth_tolerance=args.lag_growth_tolerance,
         sample_interval=args.interval,
+        confirmation_seconds=args.confirmation_seconds,
     )
 
     try:

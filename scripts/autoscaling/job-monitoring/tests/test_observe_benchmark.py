@@ -139,6 +139,7 @@ class StabilityTrackerTest(unittest.TestCase):
             input_tolerance=0.05,
             lag_growth_tolerance=0.01,
             sample_interval=5.0,
+            confirmation_seconds=30.0,
         )
         self.transaction = observe_benchmark.TransactionInfo(
             phase="COMPLETED",
@@ -169,7 +170,7 @@ class StabilityTrackerTest(unittest.TestCase):
         self.assertEqual(3, len(self.tracker.windows))
         self.assertTrue(all(window.passed for window in self.tracker.windows))
         self.assertEqual(
-            "CAPACITY_STABLE_CATCHING_UP",
+            "CONFIRMING_STABILITY",
             self.tracker.status(
                 420.0,
                 "RUNNING",
@@ -178,11 +179,29 @@ class StabilityTrackerTest(unittest.TestCase):
                 580_000.0,
             ),
         )
+        self.tracker.observe(
+            450.0,
+            "RUNNING",
+            self.transaction,
+            self.producer,
+            550_000.0,
+            "P4|M2",
+        )
+        self.assertEqual(
+            "CAPACITY_STABLE_CATCHING_UP",
+            self.tracker.status(
+                450.0,
+                "RUNNING",
+                self.transaction,
+                self.producer,
+                550_000.0,
+            ),
+        )
         stopped = observe_benchmark.ProducerState(active=False, rate=None)
         self.assertEqual(
             "CAPACITY_STABLE_CATCHING_UP",
             self.tracker.status(
-                430.0,
+                460.0,
                 "RUNNING",
                 self.transaction,
                 stopped,
@@ -219,6 +238,27 @@ class StabilityTrackerTest(unittest.TestCase):
         self.assertEqual(0, self.tracker.pass_streak)
         self.assertEqual([], self.tracker.windows)
         self.assertEqual(new_transaction.key, self.tracker.transaction_key)
+
+    def test_records_candidate_revoked_by_new_rescale(self) -> None:
+        self.observe_range(420, lag_delta_per_second=-1_000.0)
+        self.assertEqual("CAPACITY_STABLE_CATCHING_UP", self.tracker.candidate_status)
+
+        new_transaction = observe_benchmark.TransactionInfo(
+            phase="CHECKPOINT_TRIGGERED",
+            decision_timestamp="2026-08-18T10:10:00Z",
+            restored_running_timestamp=None,
+        )
+        self.tracker.observe(
+            425.0,
+            "RUNNING",
+            new_transaction,
+            self.producer,
+            500_000.0,
+            "P6|M1",
+        )
+
+        self.assertEqual("STABILITY_REVOKED_BY_RESCALE", self.tracker.last_event)
+        self.assertEqual(0, self.tracker.pass_streak)
 
     def test_late_observer_does_not_create_empty_historical_windows(self) -> None:
         self.tracker.observe(
