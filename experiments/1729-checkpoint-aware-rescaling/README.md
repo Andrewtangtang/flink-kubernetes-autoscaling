@@ -1,6 +1,6 @@
 # Checkpoint-Aware Justin and DS2 Evaluation
 
-For the current five-terminal operator runbook, see
+For the current two-terminal operator runbook, see
 [`instruction.md`](instruction.md).
 
 This experiment keeps the standalone producer and Kafka topics running while every
@@ -24,8 +24,12 @@ directories through Kustomize overlays.
 | Q19 | 59,783 events/s | bid P1 |
 | Q20 | 60,000 events/s | bid P12, auction P1 |
 
-Each run produces 100 million mixed Nexmark events. Downstream operators start
-at the parallelism recorded in that query's manifest and are controlled by the
+Each run has a 300-million mixed Nexmark event horizon. This keeps the bounded
+producer live through repeated checkpoint/rescale cycles and the final
+stability observation. The combined observer remains the primary termination
+condition, so a run may stop after it reports the experiment end condition;
+it does not need to emit all 300 million events. Downstream operators start at
+the parallelism recorded in that query's manifest and are controlled by the
 selected policy.
 
 The first decision uses a one-minute bootstrap restart estimate. After a
@@ -108,52 +112,54 @@ cd ~/flink-kubernetes-autoscaling
 export POLICY=justin  # or ds2; keep the same value in every terminal
 export QUERY=q20      # keep the same query in every terminal
 export RUN_ID=20260811-q20-justin-integrated-01  # exact same ID in every terminal
+unset EVENTS
 source experiments/1729-checkpoint-aware-rescaling/run-env.sh
 ```
 
-In terminal 1, reset Kafka once, deploy the consumer, and wait for `RUNNING`.
-After terminal 3 starts the port-forwards, replace the watch with the checkpoint
-transaction observer:
+`POLICY` selects the scaler embedded in the rendered manifest. The Kubernetes
+Operator runs it automatically; do not start a separate scaler process.
+
+In terminal 1, reset Kafka once, deploy the consumer, and wait for `RUNNING`:
 
 ```bash
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-external-kafka.sh reset
 experiments/1729-checkpoint-aware-rescaling/render-job.sh
 kubectl apply --dry-run=server -f "${RENDERED_MANIFEST}"
 kubectl apply -f "${RENDERED_MANIFEST}"
-watch -n 2 'kubectl get flinkdeployment flink; kubectl get pods -l app=flink -o wide'
+kubectl get flinkdeployment flink -w
 
-# Press Ctrl-C after the job is RUNNING and terminal 3 has started forwarding.
-experiments/1729-checkpoint-aware-rescaling/observe-checkpoint-rescale.py
+# Press Ctrl-C after the job is RUNNING and terminal 2 is observing it.
 ```
 
-In terminal 2, start the bounded producer exactly once:
+In terminal 2, start the shared background port-forwards and the combined
+benchmark observer:
+
+```bash
+scripts/autoscaling/job-monitoring/port-forward.sh start
+scripts/autoscaling/job-monitoring/port-forward.sh status
+scripts/autoscaling/job-monitoring/observe-benchmark.py \
+  --interval 5 \
+  --rate-window 30s \
+  --cpu-rate-window 2m
+```
+
+Once terminal 2 is observing the job, return to terminal 1 and start the
+bounded producer exactly once:
 
 ```bash
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh start
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh logs
 ```
 
-In terminal 3, start the shared background port-forwards and display live
-Flink/Prometheus metrics:
-
-```bash
-scripts/autoscaling/job-monitoring/port-forward.sh start
-scripts/autoscaling/job-monitoring/port-forward.sh status
-scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
-  --total-events "${EVENTS}" \
-  --source-event-share "${SOURCE_EVENT_SHARE}"
-```
-
 After a successful rescale, `restart_ms` is the measured apply-to-RUNNING
 duration that will provide restart headroom for later decisions.
-
-In terminal 4, observe autoscaler decisions:
-
-```bash
-scripts/autoscaling/job-monitoring/observe-scaling.py \
-  --configmap autoscaler-flink \
-  --follow
-```
+The observer starts a one-minute post-restore stabilization timer and then
+requires three passing two-minute windows before reporting capacity stability.
+It distinguishes a falling backlog, a flat positive backlog, and a near-zero
+flat backlog instead of treating all above-target consumer throughput as steady.
+After three passing windows it latches an `EXPERIMENT END CONDITION REACHED`
+banner so a later bounded-producer exit cannot overwrite an already accepted
+run. Pass `--exit-when-stable` for a successful automatic observer exit.
 
 Do not run `scaling-kafka-coordinator.py`: that script stops the producer,
 deletes Kafka topics, and replays from event 1 after a rescale. In this pilot,

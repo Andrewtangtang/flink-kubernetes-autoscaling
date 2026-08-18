@@ -28,7 +28,7 @@ spec:
     pipeline.jobvertex-parallelism-overrides: 6cdc5bb954874d922eaee11a8e7b5dd5:6,cbc357ccb763df2852fee8c4fc7d55f2:3,8b481b930a189b6b1762a9d95a61ada1:1,d1c51a4d3efd2babde51c3d234e2ce1c:1
     taskmanager.numberOfTaskSlots: '8'
     cluster.evenly-spread-out-slots: 'true'
-    execution.checkpointing.interval: 60s
+    execution.checkpointing.interval: 24h
     execution.checkpointing.min-pause: 30s
     execution.checkpointing.timeout: 5m
     execution.checkpointing.max-concurrent-checkpoints: '1'

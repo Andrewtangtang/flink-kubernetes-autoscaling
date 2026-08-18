@@ -11,7 +11,7 @@ spec:
     job.autoscaler.justin.enabled: 'false'
     job.autoscaler.memory.max-level: '4'
     job.autoscaler.scaling-config.history.max.count: '100'
-    job.autoscaler.stabilization.interval: 3m
+    job.autoscaler.stabilization.interval: 1m
     job.autoscaler.vertex.exclude.ids: 6cdc5bb954874d922eaee11a8e7b5dd5;cbc357ccb763df2852fee8c4fc7d55f2
     job.autoscaler.cache-hit-rate.min.threshold: '0.85'
     job.autoscaler.state-latency.threshold: '1000000.0'
@@ -28,7 +28,7 @@ spec:
     pipeline.jobvertex-parallelism-overrides: cbc357ccb763df2852fee8c4fc7d55f2:12,6cdc5bb954874d922eaee11a8e7b5dd5:1,8b481b930a189b6b1762a9d95a61ada1:1
     taskmanager.numberOfTaskSlots: '8'
     cluster.evenly-spread-out-slots: 'true'
-    execution.checkpointing.interval: 60s
+    execution.checkpointing.interval: 24h
     execution.checkpointing.min-pause: 30s
     execution.checkpointing.timeout: 5m
     execution.checkpointing.max-concurrent-checkpoints: '1'

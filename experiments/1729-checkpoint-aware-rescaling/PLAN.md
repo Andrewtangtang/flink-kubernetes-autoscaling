@@ -81,7 +81,7 @@ The evaluation matrix uses:
 - the normalized benchmark consumer profile: 8 CPU, 3 GiB, eight slots,
   1264 MiB managed memory, each query's fixed source parallelism, vertex cap
   12, and pipeline maximum 360;
-- periodic checkpoint interval `60s`, minimum pause `30s`;
+- periodic checkpoint interval `24h`, minimum pause `30s`;
 - checkpoint timeout `5m`, maximum concurrent checkpoints `1`;
 - `EXACTLY_ONCE`, retained externalized checkpoints, incremental RocksDB;
 - explicit per-experiment `RUN_ID` with checkpoint, savepoint, and HA storage
@@ -92,6 +92,8 @@ The evaluation matrix uses:
 - checkpoint-rescale timeout `5m` and restore timeout `10m`;
 - one-minute bootstrap restart estimate, followed by observed apply-to-RUNNING
   duration with a ten-minute cap and a 30-minute lag catch-up target;
+- a 300-million mixed-event producer horizon for every matched policy run,
+  with the observer's capacity-stability result as the primary stop condition;
 - each policy's existing `3m` stabilization and `2m` metrics window.
 
 The shared path has already been verified as the same NFS mount on c165,

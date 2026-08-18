@@ -165,8 +165,8 @@ or image contents changed.
 
 ## Part B: Run one benchmark
 
-Part B uses at most five c165 terminals. Every terminal must independently
-load the same query, policy, and run ID. Part B does not build or push images.
+Part B uses two c165 terminals. Every terminal must independently load the
+same query, policy, and run ID. Part B does not build or push images.
 
 ### B1. Shared environment for every terminal
 
@@ -178,12 +178,28 @@ export QUERY=q20       # q4, q9, q18, q19, or q20
 export POLICY=justin   # justin or ds2
 export RUN_ID=20260811-q20-justin-01
 
+unset EVENTS           # discard a stale value loaded by an older run
 source experiments/1729-checkpoint-aware-rescaling/run-env.sh
 ```
 
 Use a new `RUN_ID` for every independent run. Never reuse an ID whose NFS
 state directory may still exist. Use a different ID for the matched DS2 run.
 If an old ID must be reused, follow B2 before resetting Kafka or deploying.
+The default bounded horizon is 300 million mixed Nexmark events. It prevents
+the producer from ending before the final stability windows; it is not the
+required run duration. Stop after terminal 2 reports the experiment end
+condition and the evidence has been collected. Use the same `EVENTS` value for
+every policy compared on a query. Confirm the loaded value before deployment:
+
+```bash
+printf 'EVENTS=%s TPS=%s\n' "${EVENTS}" "${TPS}"
+```
+
+`POLICY=justin` or `POLICY=ds2` selects the scaler. `render-job.sh` loads the
+independent `jobs/${QUERY}/${POLICY}/experiment.yaml` manifest and writes the
+selected autoscaler settings into `${RENDERED_MANIFEST}`. The already deployed
+Kubernetes Operator then runs that scaler automatically; do not start a
+separate scaler process or the historical coordinator.
 
 ### B2. Optional: remove retained state before reusing a run ID
 
@@ -239,7 +255,7 @@ experiments/1724-kafka-q20-unique/external-kafka/run/manage-external-kafka.sh re
 
 experiments/1729-checkpoint-aware-rescaling/render-job.sh
 
-grep -E 'image:|upgradeMode:|state.checkpoints.dir:' \
+grep -E 'image:|upgradeMode:|state.checkpoints.dir:|job.autoscaler.(enabled|justin.enabled):' \
   "${RENDERED_MANIFEST}"
 kubectl apply --dry-run=server -f "${RENDERED_MANIFEST}"
 kubectl apply -f "${RENDERED_MANIFEST}"
@@ -248,11 +264,13 @@ kubectl get flinkdeployment flink -w
 ```
 
 The rendered image must be `benchmark-checkpoint-rescale`, upgrade mode must
-be `last-state`, and checkpoint storage must contain `${RUN_ID}`. Wait for
-`JOB STATUS=RUNNING` and `LIFECYCLE STATE=STABLE`, then press `Ctrl-C`.
+be `last-state`, checkpoint storage must contain `${RUN_ID}`, and the Justin
+flag must match `${POLICY}`. Applying the manifest is what starts the selected
+scaler. Wait for `JOB STATUS=RUNNING` and `LIFECYCLE STATE=STABLE`, then press
+`Ctrl-C`.
 
-Do not start the producer until terminals 3, 4, and 5 are observing the job.
-Once they are ready, start the bounded producer exactly once:
+Do not start the producer until terminal 2 is observing the job.
+Once it is ready, start the bounded producer exactly once:
 
 ```bash
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh start
@@ -262,17 +280,7 @@ experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.
 The helper lives under the Q20 experiment for historical reasons but produces
 the shared Kafka input used by all five queries.
 
-### Terminal 2: observe the deployment and pods
-
-```bash
-watch -n 5 \
-  'kubectl get flinkdeployment flink; kubectl get pods -l app=flink -o wide'
-```
-
-The FlinkDeployment remains present while the execution graph and TaskManager
-resources change.
-
-### Terminal 3: observe live Flink and Prometheus metrics
+### Terminal 2: observe the complete benchmark
 
 c165 port 8081 belongs to `kube-state-metrics`. The helper therefore uses
 18082 for Flink, 19091 for Prometheus, and 3001 for Grafana:
@@ -281,12 +289,10 @@ c165 port 8081 belongs to `kube-state-metrics`. The helper therefore uses
 scripts/autoscaling/job-monitoring/port-forward.sh start
 scripts/autoscaling/job-monitoring/port-forward.sh status
 
-scripts/autoscaling/job-monitoring/observe-flink-metrics.py \
+scripts/autoscaling/job-monitoring/observe-benchmark.py \
   --interval 5 \
   --rate-window 30s \
-  --cpu-rate-window 2m \
-  --total-events "${EVENTS}" \
-  --source-event-share "${SOURCE_EVENT_SHARE}"
+  --cpu-rate-window 2m
 ```
 
 `start` waits until both Flink REST and Prometheus respond. If Flink REST is
@@ -299,25 +305,37 @@ If a local port becomes occupied, set `FLINK_LOCAL_PORT`,
 `PROMETHEUS_LOCAL_PORT`, or `GRAFANA_LOCAL_PORT` before starting the helper.
 The observers use the same environment variables.
 
-### Terminal 4: observe checkpoint-rescale transactions
+This is the only observer required for a normal run. It combines the job and
+TaskManager state, live metrics, checkpoint transaction, scaler decision,
+producer status, Kafka lag, and capacity-stability result. After the latest
+completed rescale it waits one minute and evaluates three consecutive
+two-minute windows.
+Every accepted window requires a live producer within 5% of `${TPS}`, no
+parallelism/memory or transaction change, complete metric coverage, and no
+persistent Kafka-lag growth. It reports `CAPACITY_STABLE_CATCHING_UP` while
+lag is falling, `CAPACITY_STABLE_LAG_FLAT` when a positive backlog is not
+draining, and `FULLY_CAUGHT_UP` when lag is at most two seconds of target input
+and its slope is flat. A stopped producer is
+`INCONCLUSIVE_PRODUCER_STOPPED`, not steady state.
 
-```bash
-experiments/1729-checkpoint-aware-rescaling/observe-checkpoint-rescale.py \
-  --interval 5
+When three consecutive windows pass, the accepted result is latched and the
+observer prints:
+
+```text
+*** EXPERIMENT END CONDITION REACHED ***
+Accepted: CAPACITY_STABLE_CATCHING_UP at <UTC timestamp>
+Save evidence before stopping the producer and Flink job.
 ```
 
-This shows the transaction phase, checkpoint ID, frozen target, restore
-verification, restart duration, and latched failures.
+The accepted result remains visible even if the bounded producer finishes
+afterward. Add `--exit-when-stable` when automation should print the banner and
+exit successfully; the observer never stops the producer or job itself.
 
-### Terminal 5: observe autoscaler decisions
-
-```bash
-scripts/autoscaling/job-monitoring/observe-scaling.py \
-  --configmap autoscaler-flink \
-  --follow
-```
-
-It must report the algorithm selected by `${POLICY}`.
+The throughput line is a 30-second task-rate average. Replay progress uses
+the Kafka reader offset of every source partition, so it remains cumulative
+when checkpoint rescaling recreates the execution graph. If those metrics are
+temporarily unavailable, the observer labels its current-attempt task counter
+as a fallback; do not use that fallback as final completion evidence.
 
 ### Expected rescale sequence
 
@@ -340,7 +358,7 @@ experiments/1729-checkpoint-aware-rescaling/manage-transaction.sh retry
 
 ### Save evidence before stopping
 
-Keep terminal 3 and the port-forwards alive:
+Keep terminal 2 and the port-forwards alive:
 
 ```bash
 experiments/1724-kafka-q20-unique/analysis/export-experiment-data.py \

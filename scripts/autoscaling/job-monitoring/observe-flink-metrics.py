@@ -46,6 +46,11 @@ DEFAULT_INTERVAL_SECONDS = 5.0
 DEFAULT_RATE_WINDOW = "30s"
 DEFAULT_CPU_RATE_WINDOW = "2m"
 TASKMANAGER_POD_PATTERN = "flink-taskmanager-.*"
+KAFKA_CURRENT_OFFSET_PATTERN = re.compile(
+    r"^.*\.KafkaSourceReader\.topic\.(?P<topic>.+)\.partition\."
+    r"(?P<partition>\d+)\.currentOffset$"
+)
+METRIC_QUERY_CHUNK_SIZE = 50
 
 
 class MonitorError(RuntimeError):
@@ -104,6 +109,8 @@ class MetricsSnapshot:
     cpu_rate_window: str
     source_records_out_per_second: float
     source_records_out_total: float
+    kafka_source_offsets_total: float | None
+    replay_progress_basis: str | None
     processed_events_estimate: int | None
     total_events: int | None
     replay_progress_percent: float | None
@@ -111,7 +118,7 @@ class MetricsSnapshot:
     tasks: list[TaskMetrics]
 
 
-def get_json(url: str, timeout: float = 5.0) -> dict[str, Any]:
+def get_json(url: str, timeout: float = 5.0) -> Any:
     try:
         with urlopen(url, timeout=timeout) as response:
             return json.load(response)
@@ -137,6 +144,8 @@ class FlinkClient:
 
     def active_job(self, job_name: str | None = None) -> ActiveJob:
         overview = get_json(f"{self.base_url}/jobs/overview")
+        if not isinstance(overview, dict):
+            raise MonitorError("Flink jobs overview returned an invalid response")
         candidates = []
         for job in overview.get("jobs", []):
             if job.get("state") not in ACTIVE_JOB_STATES:
@@ -162,6 +171,69 @@ class FlinkClient:
             name=str(selected.get("name", selected["jid"])),
             state=str(selected.get("state", "UNKNOWN")),
         )
+
+    def kafka_source_offsets_total(self, job_id: str) -> float | None:
+        """Return the sum of live Kafka reader offsets across source partitions.
+
+        Task record counters belong to one execution attempt and reset whenever
+        rescaling recreates the execution graph. Kafka reader offsets are
+        restored from checkpoint state, so they remain useful across rescaling.
+        """
+        details = get_json(f"{self.base_url}/jobs/{job_id}")
+        if not isinstance(details, dict):
+            raise MonitorError("Flink job details returned an invalid response")
+
+        offsets: dict[tuple[str, int], float] = {}
+        for vertex in details.get("vertices", []):
+            if not isinstance(vertex, dict) or not str(vertex.get("name", "")).startswith(
+                "Source:"
+            ):
+                continue
+            vertex_id = vertex.get("id")
+            if not vertex_id:
+                continue
+            self._collect_vertex_kafka_offsets(job_id, str(vertex_id), offsets)
+
+        return sum(offsets.values()) if offsets else None
+
+    def _collect_vertex_kafka_offsets(
+        self,
+        job_id: str,
+        vertex_id: str,
+        offsets: dict[tuple[str, int], float],
+    ) -> None:
+        endpoint = f"{self.base_url}/jobs/{job_id}/vertices/{vertex_id}/subtasks/metrics"
+        available = get_json(endpoint)
+        if not isinstance(available, list):
+            raise MonitorError("Flink subtask metrics returned an invalid response")
+
+        names = [
+            str(metric["id"])
+            for metric in available
+            if isinstance(metric, dict)
+            and "id" in metric
+            and KAFKA_CURRENT_OFFSET_PATTERN.match(str(metric["id"]))
+        ]
+        for start in range(0, len(names), METRIC_QUERY_CHUNK_SIZE):
+            chunk = names[start : start + METRIC_QUERY_CHUNK_SIZE]
+            query = urlencode({"get": ",".join(chunk), "agg": "max"})
+            values = get_json(f"{endpoint}?{query}")
+            if not isinstance(values, list):
+                raise MonitorError("Flink Kafka offset metrics returned an invalid response")
+            for metric in values:
+                if not isinstance(metric, dict):
+                    continue
+                match = KAFKA_CURRENT_OFFSET_PATTERN.match(str(metric.get("id", "")))
+                if match is None:
+                    continue
+                try:
+                    value = float(metric["max"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if not math.isfinite(value) or value < 0:
+                    continue
+                key = (match.group("topic"), int(match.group("partition")))
+                offsets[key] = max(value, offsets.get(key, 0.0))
 
 
 class PrometheusClient:
@@ -304,6 +376,7 @@ def metric_queries(
 
 
 def collect_snapshot(
+    flink: FlinkClient,
     prometheus: PrometheusClient,
     job: ActiveJob,
     namespace: str,
@@ -394,8 +467,15 @@ def collect_snapshot(
         if key.task_name.startswith("Source:")
         and (not active_pods or key.pod == "unknown" or key.pod in active_pods)
     )
+    kafka_source_offsets_total = flink.kafka_source_offsets_total(job.job_id)
+    if kafka_source_offsets_total is None:
+        progress_total = source_records_out_total
+        replay_progress_basis = "current_attempt_records"
+    else:
+        progress_total = kafka_source_offsets_total
+        replay_progress_basis = "kafka_current_offsets"
     processed_events_estimate, replay_progress_percent = estimate_replay_progress(
-        source_records_out_total,
+        progress_total,
         total_events,
         source_event_share,
     )
@@ -409,6 +489,8 @@ def collect_snapshot(
         cpu_rate_window=cpu_rate_window,
         source_records_out_per_second=source_records_out,
         source_records_out_total=source_records_out_total,
+        kafka_source_offsets_total=kafka_source_offsets_total,
+        replay_progress_basis=replay_progress_basis,
         processed_events_estimate=processed_events_estimate,
         total_events=total_events,
         replay_progress_percent=replay_progress_percent,
@@ -481,8 +563,17 @@ def render_snapshot(snapshot: MetricsSnapshot, summary_only: bool) -> str:
             "Replay progress≈"
             f"{snapshot.processed_events_estimate:,}/{snapshot.total_events:,} "
             f"events ({snapshot.replay_progress_percent:.2f}%); "
-            f"source records={snapshot.source_records_out_total:,.0f}"
         )
+        if snapshot.replay_progress_basis == "kafka_current_offsets":
+            lines[-1] += (
+                "Kafka reader offsets="
+                f"{snapshot.kafka_source_offsets_total:,.0f} (rescale-safe)"
+            )
+        else:
+            lines[-1] += (
+                "source records(current attempt)="
+                f"{snapshot.source_records_out_total:,.0f} (fallback)"
+            )
     lines.extend(
         [
             "",
@@ -638,6 +729,7 @@ def main() -> int:
             try:
                 job = flink.active_job(args.job_name)
                 snapshot = collect_snapshot(
+                    flink,
                     prometheus,
                     job,
                     args.namespace,

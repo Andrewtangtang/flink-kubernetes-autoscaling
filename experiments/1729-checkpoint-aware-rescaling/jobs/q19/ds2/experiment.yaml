@@ -6,7 +6,7 @@ spec:
   flinkConfiguration:
     cluster.evenly-spread-out-slots: "true"
     execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
-    execution.checkpointing.interval: 60s
+    execution.checkpointing.interval: 24h
     execution.checkpointing.min-pause: 30s
     execution.checkpointing.timeout: 5m
     execution.checkpointing.max-concurrent-checkpoints: "1"
