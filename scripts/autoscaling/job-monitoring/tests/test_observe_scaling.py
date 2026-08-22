@@ -99,5 +99,53 @@ class ParallelismDecisionHistoryTest(unittest.TestCase):
         self.assertIsNone(observe_scaling.compute_raw_parallelism(4, 80_000.0, None))
 
 
+class NoRescaleWindowTest(unittest.TestCase):
+    @staticmethod
+    def snapshot(period: int, horizontal: bool = False, vertical: bool = False):
+        return observe_scaling.ScalingSnapshot(
+            timestamp=f"2026-08-22 00:{period:02d}:00,000",
+            period=period,
+            vertices=[
+                observe_scaling.VertexInfo(
+                    vertex_id="vertex",
+                    avg_throughput=10_000.0,
+                    parallelism=1,
+                    memory_level=0,
+                    vertical_scaling=vertical,
+                    horizontal_scaling=horizontal,
+                    avg_cache_hit_rate=0.9,
+                    avg_state_latency=100.0,
+                )
+            ],
+        )
+
+    def test_counts_consecutive_windows_after_latest_rescale(self) -> None:
+        snapshots = [
+            self.snapshot(0, vertical=True),
+            self.snapshot(1),
+            self.snapshot(2),
+            self.snapshot(3, horizontal=True),
+            self.snapshot(4),
+            self.snapshot(5),
+        ]
+
+        self.assertEqual(0, observe_scaling.consecutive_no_rescale_windows(snapshots, 0))
+        self.assertEqual(2, observe_scaling.consecutive_no_rescale_windows(snapshots, 2))
+        self.assertEqual(0, observe_scaling.consecutive_no_rescale_windows(snapshots, 3))
+        self.assertEqual(2, observe_scaling.consecutive_no_rescale_windows(snapshots, 5))
+
+    def test_prints_window_streak_without_classifying_stability(self) -> None:
+        snapshots = [self.snapshot(0, vertical=True), self.snapshot(1)]
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            observe_scaling.print_snapshot(snapshots, 1)
+
+        rendered = output.getvalue()
+        self.assertIn("Consecutive windows without rescaling: 1", rendered)
+        self.assertNotIn("PASS", rendered)
+        self.assertNotIn("FAIL", rendered)
+
+
 if __name__ == "__main__":
     unittest.main()

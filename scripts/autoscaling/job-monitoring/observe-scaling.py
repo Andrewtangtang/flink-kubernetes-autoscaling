@@ -103,6 +103,24 @@ def find_previous_vertex(
     return None
 
 
+def snapshot_requests_rescale(snapshot: ScalingSnapshot) -> bool:
+    return any(
+        vertex.horizontal_scaling or vertex.vertical_scaling
+        for vertex in snapshot.vertices
+    )
+
+
+def consecutive_no_rescale_windows(
+    snapshots: list[ScalingSnapshot], snapshot_index: int
+) -> int:
+    count = 0
+    for index in range(snapshot_index, -1, -1):
+        if snapshot_requests_rescale(snapshots[index]):
+            break
+        count += 1
+    return count
+
+
 def print_snapshot(
     snapshots: list[ScalingSnapshot],
     snapshot_index: int,
@@ -132,6 +150,10 @@ def print_snapshot(
             f"{horizontal:>6}  {vertical:>6}  {state_latency:>8}"
         )
     print(f"  └{'─' * (len(DISPLAY_HEADER) + 1)}")
+    no_rescale_windows = consecutive_no_rescale_windows(snapshots, snapshot_index)
+    print(
+        f"    Consecutive windows without rescaling: {no_rescale_windows}"
+    )
 
 
 def snapshot_to_dict(snapshot: ScalingSnapshot) -> dict:
@@ -623,7 +645,19 @@ def main() -> int:
                     "algorithm": "justin",
                     "configMap": configmap_name or None,
                     "richSnapshots": [
-                        snapshot_to_dict(snapshot) for snapshot in new_snapshots
+                        {
+                            **snapshot_to_dict(snapshot),
+                            "consecutiveNoRescaleWindows": consecutive_no_rescale_windows(
+                                snapshots,
+                                next(
+                                    index
+                                    for index, candidate in enumerate(snapshots)
+                                    if candidate.timestamp == snapshot.timestamp
+                                    and candidate.period == snapshot.period
+                                ),
+                            ),
+                        }
+                        for snapshot in new_snapshots
                     ],
                     "parallelismCalculations": [
                         parallelism_decision_event_to_dict(event)

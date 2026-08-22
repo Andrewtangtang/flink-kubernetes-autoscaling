@@ -29,3 +29,6 @@ Each policy has a complete standalone manifest:
 
 - `jobs/justin/experiment.yaml`
 - `jobs/ds2/experiment.yaml`
+
+See `instruction-replay.md` for the corrected Justin operator build,
+deployment verification, five-terminal replay procedure, and evidence export.
