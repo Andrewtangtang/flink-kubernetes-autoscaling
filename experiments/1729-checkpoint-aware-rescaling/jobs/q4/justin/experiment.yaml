@@ -17,6 +17,8 @@ spec:
     job.autoscaler.state-latency.threshold: '1000000.0'
     job.autoscaler.metrics.window: 2m
     job.autoscaler.checkpoint-rescale.enabled: 'true'
+    job.autoscaler.checkpoint-rescale.producer-pause.enabled: 'true'
+    job.autoscaler.checkpoint-rescale.producer-pause.timeout: 2m
     job.autoscaler.checkpoint-rescale.checkpoint-timeout: 5m
     job.autoscaler.checkpoint-rescale.restore-timeout: 10m
     job.autoscaler.restart.time: 1m

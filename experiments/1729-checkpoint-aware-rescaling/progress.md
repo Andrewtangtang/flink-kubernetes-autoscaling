@@ -1,10 +1,10 @@
 # Checkpoint-Aware Rescaling Progress
 
-- Updated: 2026-08-11
-- Outer branch: `benchmark-checkpoint-rescaling`
+- Updated: 2026-09-10
+- Outer branch: `producer-pause-checkpoint-rescaling`
 - Base: normalized `benchmark` at `9666e588`
-- Operator branch: `benchmark-checkpoint-rescaling` from benchmark `e07e163`
-  plus checkpoint transaction `7aa39d3`
+- Operator branch: `producer-pause-checkpoint-rescaling`, retaining checkpoint
+  transaction commit `7aa39d3`
 - Current status: independent query matrix complete locally; review and cluster validation pending
 
 ## Completed
@@ -51,6 +51,11 @@
 - [x] Added guarded whole-run NFS cleanup for intentional `RUN_ID` reuse. It
   fails closed unless Kubernetes is reachable, no FlinkDeployment or Flink pod
   exists, and the caller repeats the exact run ID.
+- [x] Added a transaction-specific producer pause/resume handshake. The
+  Operator waits for pause acknowledgement before triggering the checkpoint
+  and waits for resume acknowledgement after restore; the external controller
+  uses idempotent Docker pause/unpause operations and leaves failures paused
+  for diagnosis.
 
 ## Pending Validation
 
@@ -60,6 +65,8 @@
   command dry-runs.
 - [ ] Render and server-side Kubernetes dry-run for all ten manifests on c165.
 - [ ] Matched Justin and DS2 continuous-input cluster pilots for all queries.
+- [ ] Validate that the standalone Flink Kafka producer tolerates the longest
+  observed Docker pause without Kafka session or request timeout failure.
 - [ ] Review complete diffs before creating new commits.
 
 ## Evidence and Blockers

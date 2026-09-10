@@ -32,13 +32,14 @@ overrides sent to the AdaptiveScheduler.
  verify RUNNING target -> next 3m + 2m cycle
 ```
 
-The producer and Kafka topics stay live throughout the transaction. This is a
-new production-oriented evaluation path; the original reset-and-replay
-experiments remain unchanged.
+Kafka topics stay live throughout the transaction. The producer container is
+paused before the gated checkpoint and resumed after restore verification.
+This is a new production-oriented evaluation path; the original
+reset-and-replay experiments remain unchanged.
 
 ## Git Isolation
 
-- Outer branch: `benchmark-checkpoint-rescaling`, created from normalized
+- Outer branch: `producer-pause-checkpoint-rescaling`, created from normalized
   `benchmark` commit `9666e588` in the sibling worktree
   `flink-kubernetes-autoscaling-integrated`.
 - Justin operator submodule: same branch name, combining benchmark commit

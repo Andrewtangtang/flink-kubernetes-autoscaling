@@ -171,6 +171,48 @@ case "${ACTION}" in
         echo -e "${GREEN}✓${NC} Standalone producer stopped"
         ;;
 
+    pause)
+        echo "── Pausing Standalone insert_kafka On ${TARGET_HOST} ────────────────"
+        remote_status="$(ssh_remote "sudo -n docker inspect --format '{{.State.Status}} {{.State.Paused}}' ${CONTAINER_NAME} 2>/dev/null || true")"
+        if [[ -z "${remote_status}" ]]; then
+            echo -e "${RED}✗ Standalone producer container does not exist${NC}" >&2
+            exit 1
+        fi
+        if [[ "${remote_status}" == "running false" ]]; then
+            ssh_remote "sudo -n docker pause ${CONTAINER_NAME} >/dev/null"
+        elif [[ "${remote_status}" != "running true" ]]; then
+            echo -e "${RED}✗ Cannot pause producer in state: ${remote_status}${NC}" >&2
+            exit 1
+        fi
+        remote_status="$(ssh_remote "sudo -n docker inspect --format '{{.State.Status}} {{.State.Paused}}' ${CONTAINER_NAME}")"
+        if [[ "${remote_status}" != "running true" ]]; then
+            echo -e "${RED}✗ Producer pause verification failed: ${remote_status}${NC}" >&2
+            exit 1
+        fi
+        echo -e "${GREEN}✓${NC} Standalone producer paused"
+        ;;
+
+    resume|unpause)
+        echo "── Resuming Standalone insert_kafka On ${TARGET_HOST} ───────────────"
+        remote_status="$(ssh_remote "sudo -n docker inspect --format '{{.State.Status}} {{.State.Paused}}' ${CONTAINER_NAME} 2>/dev/null || true")"
+        if [[ -z "${remote_status}" ]]; then
+            echo -e "${RED}✗ Standalone producer container does not exist${NC}" >&2
+            exit 1
+        fi
+        if [[ "${remote_status}" == "running true" ]]; then
+            ssh_remote "sudo -n docker unpause ${CONTAINER_NAME} >/dev/null"
+        elif [[ "${remote_status}" != "running false" ]]; then
+            echo -e "${RED}✗ Cannot resume producer in state: ${remote_status}${NC}" >&2
+            exit 1
+        fi
+        remote_status="$(ssh_remote "sudo -n docker inspect --format '{{.State.Status}} {{.State.Paused}}' ${CONTAINER_NAME}")"
+        if [[ "${remote_status}" != "running false" ]]; then
+            echo -e "${RED}✗ Producer resume verification failed: ${remote_status}${NC}" >&2
+            exit 1
+        fi
+        echo -e "${GREEN}✓${NC} Standalone producer resumed"
+        ;;
+
     status)
         echo "── Standalone insert_kafka Status On ${TARGET_HOST} ──────────────────"
         ssh_remote "sudo -n docker ps -a --filter name=${CONTAINER_NAME}"

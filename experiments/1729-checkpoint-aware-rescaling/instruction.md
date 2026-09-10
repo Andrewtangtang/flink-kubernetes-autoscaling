@@ -6,8 +6,9 @@ This runbook has two independent parts:
 - **Part B — Run a benchmark:** run once for every query/policy experiment.
 
 Do not rebuild images while a benchmark is running. Do not run
-`scaling-kafka-coordinator.py`; checkpoint-aware rescaling keeps Kafka and the
-producer live while Flink restores state and offsets.
+`scaling-kafka-coordinator.py`; the producer controller pauses the existing
+producer container before each rescale checkpoint and resumes the same
+container after restore. Kafka topics are never reset during a run.
 
 ## Part A: Build and deploy software
 
@@ -24,7 +25,7 @@ cd ~/flink-kubernetes-autoscaling
 
 git status --short
 git fetch origin
-git switch benchmark-checkpoint-rescaling
+git switch producer-pause-checkpoint-rescaling
 git pull --ff-only
 git submodule sync --recursive
 git submodule update --init --recursive
@@ -357,15 +358,20 @@ watch -n 5 \
 This is the fastest view for pod-level problems such as a TaskManager stuck
 `Pending`, node disk pressure, or an image-pull failure.
 
-### Terminal 4: observe checkpoint-rescale transactions
+### Terminal 4: control producer pause and resume
 
 ```bash
-experiments/1729-checkpoint-aware-rescaling/observe-checkpoint-rescale.py \
-  --interval 5
+experiments/1729-checkpoint-aware-rescaling/checkpoint-producer-controller.py \
+  --interval 1
 ```
 
-This shows the transaction phase, checkpoint ID, restore verification,
-apply-to-RUNNING duration, and any latched failure.
+This controller must be running before the producer starts. It pauses the
+existing producer container when a transaction enters
+`WAITING_PRODUCER_PAUSE`, writes a transaction-specific acknowledgement to the
+FlinkDeployment, and resumes the same container only after restore reaches
+`WAITING_PRODUCER_RESUME`. The commands are idempotent. If a transaction fails
+after pause, the producer remains paused so evidence can be collected; repair
+and retry or resume it manually only after diagnosing the failure.
 
 ### Terminal 5: observe autoscaler decisions
 
@@ -384,20 +390,30 @@ there.
 
 ```text
 Justin or DS2 decision
+  -> producer paused and pause acknowledged
   -> fresh checkpoint triggered and completed
   -> target parallelism and optional memory applied
   -> execution graph rebuilt from checkpoint state
   -> Kafka sources resume from checkpointed offsets
-  -> accumulated Kafka backlog is drained
+  -> producer resumed and resume acknowledged
 ```
 
-Kafka topics and the producer remain live throughout this sequence. If a
-transaction enters `FAILED`, preserve the job and inspect it before retrying:
+The producer process is frozen rather than stopped, so its event counter and
+configuration are preserved. Kafka topics remain intact. Events already in
+Kafka before the pause may still be consumed while checkpointing, but no new
+events are generated during checkpoint/apply/restore. If a transaction enters
+`FAILED`, preserve the job and inspect it before retrying:
 
 ```bash
 experiments/1729-checkpoint-aware-rescaling/manage-transaction.sh status
 experiments/1729-checkpoint-aware-rescaling/manage-transaction.sh retry
+experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh status
 ```
+
+A successful pre-apply `abort` is detected by the controller and resumes a
+paused producer. For a post-apply failure, keep the controller running and use
+`retry`; do not manually resume input while the execution graph is still being
+repaired.
 
 ### State-latency warm-up
 

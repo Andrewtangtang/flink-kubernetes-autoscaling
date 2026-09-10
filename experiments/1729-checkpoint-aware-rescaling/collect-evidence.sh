@@ -57,6 +57,9 @@ kubectl get pods --namespace "${NAMESPACE}" -o wide \
 kubectl get events --namespace "${NAMESPACE}" --sort-by=.lastTimestamp \
   > "${OUTPUT_DIR}/events.txt"
 
+"${REPO_ROOT}/experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh" \
+  status > "${OUTPUT_DIR}/producer-status.txt" 2>&1 || true
+
 curl --fail --silent --show-error "${FLINK_URL}/jobs/overview" \
   > "${OUTPUT_DIR}/jobs-overview.json"
 JOB_ID="$(jq -r \

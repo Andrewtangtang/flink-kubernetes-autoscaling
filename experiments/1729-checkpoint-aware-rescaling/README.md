@@ -1,12 +1,14 @@
 # Checkpoint-Aware Justin and DS2 Evaluation
 
-For the current two-terminal operator runbook, see
+For the current five-terminal operator runbook, see
 [`instruction.md`](instruction.md).
 
-This experiment keeps the standalone producer and Kafka topics running while every
-Justin or DS2 decision is gated by a fresh completed Flink checkpoint. It is
-separate from the paper-reproduction coordinator, which intentionally resets
-Kafka and replays bounded input after each stateless rescale.
+This experiment preserves the standalone producer container and Kafka topics
+while every Justin or DS2 decision is gated by a fresh completed Flink
+checkpoint. A transaction-aware controller pauses generation before the
+checkpoint and resumes the same process after restore. It is separate from the
+paper-reproduction coordinator, which resets Kafka and replays bounded input
+after each stateless rescale.
 
 Q4, Q9, Q18, Q19, and Q20 each have complete, independent Justin and DS2
 manifests under `jobs/<query>/<policy>/experiment.yaml`. They are materialized
@@ -162,9 +164,10 @@ banner so a later bounded-producer exit cannot overwrite an already accepted
 run. Pass `--exit-when-stable` for a successful automatic observer exit.
 
 Do not run `scaling-kafka-coordinator.py`: that script stops the producer,
-deletes Kafka topics, and replays from event 1 after a rescale. In this pilot,
-the producer and Kafka must remain live so restored Kafka offsets and backlog
-catch-up can be verified.
+deletes Kafka topics, and replays from event 1 after a rescale. Run
+`checkpoint-producer-controller.py --interval 1` instead. It freezes the
+producer container during checkpoint/apply/restore without resetting Kafka or
+the producer's progress.
 
 Inspect or manually control a failed transaction with:
 
