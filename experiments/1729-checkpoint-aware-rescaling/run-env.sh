@@ -8,26 +8,35 @@ fi
 
 export QUERY="${QUERY:-q20}"
 export POLICY="${POLICY:-justin}"
+export EXPERIMENT_PROFILE="${EXPERIMENT_PROFILE:-paper}"
 
-case "${QUERY}" in
-  q4|q9)
+case "${EXPERIMENT_PROFILE}:${QUERY}" in
+  paper:q4|paper:q9)
     export TPS=40000
     export SOURCE_EVENT_SHARE=0.98
     ;;
-  q18)
+  paper:q18)
     export TPS=97827
     export SOURCE_EVENT_SHARE=0.92
     ;;
-  q19)
+  paper:q19)
     export TPS=59783
     export SOURCE_EVENT_SHARE=0.92
     ;;
-  q20)
+  paper:q20)
     export TPS=60000
     export SOURCE_EVENT_SHARE=0.98
     ;;
+  normalized:q4|normalized:q9|normalized:q20)
+    export TPS=56123
+    export SOURCE_EVENT_SHARE=0.98
+    ;;
+  normalized:q18|normalized:q19)
+    export TPS=59783
+    export SOURCE_EVENT_SHARE=0.92
+    ;;
   *)
-    echo "QUERY must be one of q4, q9, q18, q19, or q20" >&2
+    echo "EXPERIMENT_PROFILE must be paper or normalized, and QUERY must be q4, q9, q18, q19, or q20" >&2
     return 1 2>/dev/null || exit 1
     ;;
 esac
@@ -64,8 +73,14 @@ export EVENTS="${EVENTS:-300000000}"
 export MAX_EMIT_SPEED="${MAX_EMIT_SPEED:-false}"
 
 export RUN_ID
-export RUN_STORAGE_ROOT="/mnt/experiments/autoscaling-experiments/flink-state/runs/${RUN_ID}"
-export RENDERED_MANIFEST="/tmp/${QUERY}-checkpoint-aware-${RUN_ID}.yaml"
+if [[ "${EXPERIMENT_PROFILE}" == "normalized" ]]; then
+  export RUN_STORAGE_ROOT="s3://${S3_BUCKET:-__S3_BUCKET__}/flink-state/runs/${RUN_ID}"
+  export EXPECTED_JOB_NAME="${QUERY}_unique-normalized-checkpoint-aware-${POLICY}-${RUN_ID}"
+else
+  export RUN_STORAGE_ROOT="/mnt/experiments/autoscaling-experiments/flink-state/runs/${RUN_ID}"
+  export EXPECTED_JOB_NAME="${QUERY}_unique-checkpoint-aware-${POLICY}-${RUN_ID}"
+fi
+export RENDERED_MANIFEST="/tmp/${QUERY}-${EXPERIMENT_PROFILE}-checkpoint-aware-${RUN_ID}.yaml"
 export RUN_RESULTS_DIR="experiments/1729-checkpoint-aware-rescaling/results/${RUN_ID}"
 
 export FLINK_RUNTIME_IMAGE_TAG="benchmark-checkpoint-rescale"
@@ -80,7 +95,7 @@ echo "Loaded checkpoint-aware ${QUERY} configuration:"
 echo "  runtime=${FLINK_RUNTIME_IMAGE}"
 echo "  benchmark=${FLINK_BENCHMARK_IMAGE}"
 echo "  operator=${OPERATOR_IMAGE}"
-echo "  policy=${POLICY} run_id=${RUN_ID}"
+echo "  policy=${POLICY} profile=${EXPERIMENT_PROFILE} run_id=${RUN_ID}"
 echo "  storage=${RUN_STORAGE_ROOT}"
 echo "  manifest=${RENDERED_MANIFEST}"
 echo "  workload=${TPS} events/s, ${EVENTS} events, source_share=${SOURCE_EVENT_SHARE}"

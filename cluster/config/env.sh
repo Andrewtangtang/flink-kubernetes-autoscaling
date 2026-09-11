@@ -30,6 +30,16 @@ export KUBECONFIG_GROUP="${KUBECONFIG_GROUP:-users}"
 export HELM_CHART="${HELM_CHART:-${OPERATOR_SOURCE}/helm/flink-kubernetes-operator}"
 export OPERATOR_VALUES="${OPERATOR_VALUES:-${CLUSTER_ROOT}/operator/values.yaml}"
 export MONITORING_MANIFESTS="${MONITORING_MANIFESTS:-${CLUSTER_ROOT}/monitoring}"
+export MONITORING_PROFILE="${MONITORING_PROFILE:-lab}"
+if [[ "${MONITORING_PROFILE}" == "aws" ]]; then
+  export PROM_VALUES="${PROM_VALUES:-${CLUSTER_ROOT}/aws/values-prom.yaml}"
+  export LOKI_VALUES="${LOKI_VALUES:-${CLUSTER_ROOT}/aws/values-loki.yaml}"
+  export STORAGE_CLASS_MANIFEST="${STORAGE_CLASS_MANIFEST:-${CLUSTER_ROOT}/aws/storageclass-gp3.yaml}"
+else
+  export PROM_VALUES="${PROM_VALUES:-${MONITORING_MANIFESTS}/values-prom.yaml}"
+  export LOKI_VALUES="${LOKI_VALUES:-${MONITORING_MANIFESTS}/values-loki.yaml}"
+  export STORAGE_CLASS_MANIFEST="${STORAGE_CLASS_MANIFEST:-}"
+fi
 
 export EXPERIMENTS_ROOT="${EXPERIMENTS_ROOT:-/mnt/experiments/autoscaling-experiments}"
 export CHECKPOINT_HOST_PATH="${CHECKPOINT_HOST_PATH:-${EXPERIMENTS_ROOT}/flink-state}"

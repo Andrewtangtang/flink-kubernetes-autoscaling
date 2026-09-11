@@ -24,6 +24,7 @@ fi
   echo "run_id=${RUN_ID}"
   echo "query=${QUERY}"
   echo "policy=${POLICY}"
+  echo "profile=${EXPERIMENT_PROFILE}"
   echo "tps=${TPS}"
   echo "events=${EVENTS}"
   echo "source_event_share=${SOURCE_EVENT_SHARE}"
@@ -35,14 +36,17 @@ kubectl get flinkdeployment "${DEPLOYMENT}" \
   --namespace "${NAMESPACE}" \
   -o yaml > "${OUTPUT_DIR}/flinkdeployment.yaml"
 
-EXPECTED_CHECKPOINT_URI="file://${RUN_STORAGE_ROOT}/checkpoints"
+if [[ "${EXPERIMENT_PROFILE}" == "normalized" ]]; then
+  EXPECTED_CHECKPOINT_URI="${RUN_STORAGE_ROOT}/checkpoints"
+else
+  EXPECTED_CHECKPOINT_URI="file://${RUN_STORAGE_ROOT}/checkpoints"
+fi
 if ! grep -Fq "${EXPECTED_CHECKPOINT_URI}" "${OUTPUT_DIR}/flinkdeployment.yaml"; then
   echo "Deployment checkpoint storage does not match RUN_ID=${RUN_ID}" >&2
   echo "Expected ${EXPECTED_CHECKPOINT_URI}" >&2
   exit 1
 fi
 
-EXPECTED_JOB_NAME="${QUERY}_unique-checkpoint-aware-${POLICY}-${RUN_ID}"
 if ! grep -Fq "${EXPECTED_JOB_NAME}" "${OUTPUT_DIR}/flinkdeployment.yaml"; then
   echo "Deployment job name does not match QUERY=${QUERY}, POLICY=${POLICY}, RUN_ID=${RUN_ID}" >&2
   echo "Expected ${EXPECTED_JOB_NAME}" >&2

@@ -9,7 +9,11 @@ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.5
 kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=120s
 
 kubectl create namespace manager --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.21/deploy/local-path-storage.yaml
+if [[ -n "${STORAGE_CLASS_MANIFEST}" ]]; then
+  kubectl apply -f "${STORAGE_CLASS_MANIFEST}"
+else
+  kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.21/deploy/local-path-storage.yaml
+fi
 
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
 helm repo add grafana https://grafana.github.io/helm-charts >/dev/null 2>&1 || true
@@ -18,14 +22,14 @@ helm repo update
 helm upgrade --install prom prometheus-community/kube-prometheus-stack \
   --namespace manager \
   --version "${PROM_CHART_VERSION}" \
-  -f "${MONITORING_MANIFESTS}/values-prom.yaml"
+  -f "${PROM_VALUES}"
 
 kubectl apply -f "${MONITORING_MANIFESTS}/pod-monitor.yaml"
 
 helm upgrade --install loki grafana/loki-stack \
   --namespace manager \
   --version "${LOKI_CHART_VERSION}" \
-  -f "${MONITORING_MANIFESTS}/values-loki.yaml" \
+  -f "${LOKI_VALUES}" \
   --set loki.podSecurityPolicy.enabled=false \
   --set promtail.podSecurityPolicy.enabled=false
 

@@ -9,7 +9,23 @@ cd "${REPO_ROOT}"
 # shellcheck source=experiments/1729-checkpoint-aware-rescaling/run-env.sh
 source "${SCRIPT_DIR}/run-env.sh"
 
-SOURCE_MANIFEST="${SCRIPT_DIR}/jobs/${QUERY}/${POLICY}/experiment.yaml"
+if [[ "${EXPERIMENT_PROFILE}" == "normalized" ]]; then
+  SOURCE_MANIFEST="${SCRIPT_DIR}/jobs-normalized/${QUERY}/${POLICY}/experiment.yaml"
+  if [[ -z "${S3_BUCKET:-}" || ! "${S3_BUCKET}" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]]; then
+    echo "S3_BUCKET must be a valid bucket name for the normalized profile" >&2
+    exit 1
+  fi
+  if [[ ! "${KAFKA_BOOTSTRAP:-}" =~ ^[A-Za-z0-9.-]+:[0-9]{1,5}$ ]]; then
+    echo "KAFKA_BOOTSTRAP must be a host:port value" >&2
+    exit 1
+  fi
+  if [[ ! "${FLINK_BENCHMARK_IMAGE}" =~ \.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/ ]]; then
+    echo "FLINK_BENCHMARK_IMAGE must point to ECR for the normalized profile" >&2
+    exit 1
+  fi
+else
+  SOURCE_MANIFEST="${SCRIPT_DIR}/jobs/${QUERY}/${POLICY}/experiment.yaml"
+fi
 OUTPUT="${1:-${RENDERED_MANIFEST}}"
 
 if [[ ! -f "${SOURCE_MANIFEST}" ]]; then
@@ -21,15 +37,20 @@ mkdir -p "$(dirname "${OUTPUT}")"
 TEMP_OUTPUT="$(mktemp "${OUTPUT}.tmp.XXXXXX")"
 trap 'rm -f "${TEMP_OUTPUT}"' EXIT
 
-sed "s|__RUN_ID__|${RUN_ID}|g" "${SOURCE_MANIFEST}" > "${TEMP_OUTPUT}"
+sed \
+  -e "s|__RUN_ID__|${RUN_ID}|g" \
+  -e "s|__FLINK_BENCHMARK_IMAGE__|${FLINK_BENCHMARK_IMAGE}|g" \
+  -e "s|__S3_BUCKET__|${S3_BUCKET:-}|g" \
+  -e "s|__KAFKA_BOOTSTRAP__|${KAFKA_BOOTSTRAP:-}|g" \
+  "${SOURCE_MANIFEST}" > "${TEMP_OUTPUT}"
 
-if grep -q '__RUN_ID__' "${TEMP_OUTPUT}"; then
-  echo "Rendered manifest still contains an unresolved RUN_ID placeholder" >&2
+if grep -Eq '__[A-Z0-9_]+__' "${TEMP_OUTPUT}"; then
+  echo "Rendered manifest still contains an unresolved placeholder" >&2
   exit 1
 fi
 
 for required_value in \
-  "${QUERY}_unique-checkpoint-aware-${POLICY}-${RUN_ID}" \
+  "${EXPECTED_JOB_NAME}" \
   "${RUN_STORAGE_ROOT}/checkpoints" \
   "${RUN_STORAGE_ROOT}/savepoints" \
   "${RUN_STORAGE_ROOT}/ha"; do
@@ -42,5 +63,5 @@ done
 mv "${TEMP_OUTPUT}" "${OUTPUT}"
 trap - EXIT
 
-echo "Rendered ${QUERY}/${POLICY} manifest for ${RUN_ID}: ${OUTPUT}"
+echo "Rendered ${EXPERIMENT_PROFILE}/${QUERY}/${POLICY} manifest for ${RUN_ID}: ${OUTPUT}"
 echo "Checkpoint storage: ${RUN_STORAGE_ROOT}"

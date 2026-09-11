@@ -18,6 +18,16 @@ source parallelism and input rate. All ten manifests use the matched 8-CPU,
 12, and pipeline maximum 360. They do not reference the benchmark experiment
 directories through Kustomize overlays.
 
+For the separate AWS comparison profile with a common 55,000 events/s query
+input, fixed bid P6 and auction P3 sources, and 4-CPU/3-GiB/four-slot
+TaskManagers, use [`jobs-normalized/`](jobs-normalized/README.md). The original
+`jobs/` manifests above remain unchanged for paper reproduction.
+
+Set `EXPERIMENT_PROFILE=normalized` and source
+[`aws.env.example`](aws.env.example) before `run-env.sh` to render the AWS
+profile. It replaces the ECR image, S3 bucket, Kafka endpoint, and run ID while
+keeping credentials outside Git.
+
 | Query | Producer rate | Fixed Kafka sources |
 |---|---:|---|
 | Q4 | 40,000 events/s | bid P6, auction P3 |
