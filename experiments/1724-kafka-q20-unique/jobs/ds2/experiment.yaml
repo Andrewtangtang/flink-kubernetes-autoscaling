@@ -13,12 +13,13 @@ spec:
     job.autoscaler.scaling-config.history.max.count: '100'
     job.autoscaler.stabilization.interval: 3m
     job.autoscaler.vertex.exclude.ids: 6cdc5bb954874d922eaee11a8e7b5dd5;cbc357ccb763df2852fee8c4fc7d55f2
-    job.autoscaler.cache-hit-rate.min.threshold: '0.8'
+    job.autoscaler.cache-hit-rate.min.threshold: '0.85'
     job.autoscaler.state-latency.threshold: '1000000.0'
     job.autoscaler.metrics.window: 2m
-    pipeline.max-parallelism: '20'
-    pipeline.jobvertex-parallelism-overrides: 6cdc5bb954874d922eaee11a8e7b5dd5:1,cbc357ccb763df2852fee8c4fc7d55f2:12,8b481b930a189b6b1762a9d95a61ada1:1
-    taskmanager.numberOfTaskSlots: '4'
+    job.autoscaler.vertex.max-parallelism: '12'
+    pipeline.max-parallelism: '360'
+    pipeline.jobvertex-parallelism-overrides: cbc357ccb763df2852fee8c4fc7d55f2:12,6cdc5bb954874d922eaee11a8e7b5dd5:1,8b481b930a189b6b1762a9d95a61ada1:1
+    taskmanager.numberOfTaskSlots: '8'
     cluster.evenly-spread-out-slots: 'true'
     execution.checkpointing.interval: 300m
     state.checkpoints.dir: file:///mnt/experiments/autoscaling-experiments/flink-state/checkpoints
@@ -37,8 +38,8 @@ spec:
     web.submit.enable: 'true'
     web.cancel.enable: 'true'
     state.backend: rocksdb
-    taskmanager.memory.managed.fraction: '0.4'
-    taskmanager.cpu.cores: '4'
+    taskmanager.memory.managed.size: 1264m
+    taskmanager.cpu.cores: '8'
     state.backend.rocksdb.metrics.block-cache-capacity: 'true'
     state.backend.rocksdb.metrics.block-cache-usage: 'true'
     state.backend.rocksdb.metrics.block-cache-hit: 'true'
@@ -103,8 +104,8 @@ spec:
           tier: jobmanager
   taskManager:
     resource:
-      memory: 2048m
-      cpu: 4
+      memory: 3072m
+      cpu: 8
     podTemplate:
       apiVersion: v1
       kind: Pod
@@ -152,63 +153,33 @@ spec:
     - --bootstrap-servers
     - kafka-external:9092
   logConfiguration:
-    log4j-console.properties: 'rootLogger.level = DEBUG
-
+    log4j-console.properties: |
+      rootLogger.level = DEBUG
       rootLogger.appenderRef.file.ref = LogFile
-
       rootLogger.appenderRef.console.ref = LogConsole
-
       appender.file.name = LogFile
-
       appender.file.type = File
-
       appender.file.append = false
-
       appender.file.fileName = ${sys:log.file}
-
       appender.file.layout.type = PatternLayout
-
       appender.file.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
-
       appender.console.name = LogConsole
-
       appender.console.type = CONSOLE
-
       appender.console.layout.type = PatternLayout
-
       appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
-
       logger.akka.name = akka
-
       logger.akka.level = INFO
-
       logger.kafka.name= org.apache.kafka
-
       logger.kafka.level = INFO
-
       logger.hadoop.name = org.apache.hadoop
-
       logger.hadoop.level = INFO
-
       logger.zookeeper.name = org.apache.zookeeper
-
       logger.zookeeper.level = INFO
-
       logger.netty.name = org.apache.flink.shaded.akka.org.jboss.netty.channel.DefaultChannelPipeline
-
       logger.netty.level = OFF
-
-
       log4j.logger.org.apache.http.wire = OFF
-
       log4j.logger.org.apache.http.headers = OFF
-
       logger.http.name = org.apache.http
-
       logger.http.level = OFF
-
       logger.aws.name = com.amazonaws
-
       logger.aws.level = OFF
-
-      '

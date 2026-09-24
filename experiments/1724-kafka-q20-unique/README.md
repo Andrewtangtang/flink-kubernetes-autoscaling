@@ -15,11 +15,14 @@ a separate local-mode Flink job on the external Kafka host, so the input stream
 can be stopped, restarted, and replayed independently of the autoscaled
 consumer.
 
-Run commands from the repository root:
-
-```bash
-cd /flink-kubernetes-autoscaling
-```
+Run commands from the repository root. The other queries use the same external
+Kafka/producer workflow; their manifests and rates are listed in
+[`docs/experiment-flow.md`](../../docs/experiment-flow.md).
+For Q4, Q9, Q18, or Q19, set the corresponding `QUERY`, source the shared
+configuration in each relevant terminal, and replace only the consumer
+manifest path with that query's `jobs/{ds2,justin}/experiment.yaml`. The
+`1724-kafka-q20-unique/external-kafka/` commands below remain the same for
+every query.
 
 ## One-Time External Kafka Setup
 
@@ -27,8 +30,8 @@ Run the setup scripts once on a new producer host, or again when the host,
 registry image, or `kafka-external` service target changes.
 
 ```bash
-export TARGET_HOST=c153
-export HOST_TAG=c153
+export TARGET_HOST=c153  # Replace with your Kafka/producer host.
+export HOST_TAG="${TARGET_HOST}"
 
 experiments/1724-kafka-q20-unique/external-kafka/setup/01-prepare-generator-host.sh
 experiments/1724-kafka-q20-unique/external-kafka/setup/02-apply-kafka-service.sh apply
@@ -48,21 +51,16 @@ configuration. The coordinator restarts the producer after every detected
 rescale, so mismatched values change the workload partway through a run.
 
 ```bash
-export TARGET_HOST=c153
-export HOST_TAG=c153
-export PRODUCER_REST_PORT=18081
-
-export PARALLELISM=4
-export SLOTS=4
-export TM_CORES=16
-export DOCKER_CPUS=16
-export JM_PROCESS_MEMORY=2048m
-export TM_PROCESS_MEMORY=8192m
-
-export TPS=60000
-export EVENTS=300000000
-export MAX_EMIT_SPEED=false
+export TARGET_HOST=c153  # Replace with your Kafka/producer host.
+export HOST_TAG="${TARGET_HOST}"
+export QUERY=q20
+source experiments/benchmark-run-env.sh
 ```
+
+Set `TARGET_IP` if `TARGET_HOST` is not resolvable on the machine running these
+scripts. Set `KUBECONFIG` to the kubeconfig for the target cluster. The shared
+script sets the producer resources, 60,000 mixed events/s, and 100 million
+events for Q20; select another query with `QUERY=q4`, `q9`, `q18`, or `q19`.
 
 `PARALLELISM`, `TPS`, `EVENTS`, `MAX_EMIT_SPEED`, and `PRODUCER_REST_PORT` are
 also passed to the coordinator as CLI arguments. `SLOTS`, `TM_CORES`,
@@ -81,7 +79,7 @@ scripts/autoscaling/cluster-management/05-prepull-images.sh --target-host "${TAR
 ```
 
 Reset external Kafka. This starts the broker if needed and recreates the
-three q20_unique Kafka topics with empty state:
+three shared Nexmark Kafka topics with empty state:
 `nexmark-person`, `nexmark-auction`, and `nexmark-bid`.
 
 ```bash
@@ -92,14 +90,14 @@ Submit one consumer job to the operator. Use the DS2 manifest:
 
 ```bash
 scripts/autoscaling/job-management/submit-job.sh \
-  experiments/1724-kafka-q20-unique/jobs/q20_unique-sql-ssd-kafka-ds2-rocksdb-options.yaml
+  experiments/1724-kafka-q20-unique/jobs/ds2/experiment.yaml
 ```
 
 Or use the Justin autoscaler manifest:
 
 ```bash
 scripts/autoscaling/job-management/submit-job.sh \
-  experiments/1724-kafka-q20-unique/jobs/q20_unique-sql-ssd-kafka-justin-rocksdb-options.yaml
+  experiments/1724-kafka-q20-unique/jobs/justin/experiment.yaml
 ```
 
 Wait for the consumer to be running before starting the producer:
@@ -157,7 +155,7 @@ scripts/autoscaling/job-monitoring/observe-scaling.py --follow
 scripts/autoscaling/status.sh
 ```
 
-The producer REST UI is on the external host at `http://c153:18081` when
+The producer REST UI is on the external host at `http://<producer-host>:18081` when
 `PRODUCER_REST_PORT=18081`.
 
 ## Stop A Run
