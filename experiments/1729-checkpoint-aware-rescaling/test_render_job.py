@@ -36,7 +36,10 @@ class RenderJobTest(unittest.TestCase):
                 self.assertIn(f"/mnt/flink-state/pilot-{policy}/checkpoints", manifest)
                 self.assertIn("kafka.example:9092", manifest)
                 self.assertIn("cbc357ccb763df2852fee8c4fc7d55f2:12", manifest)
-                self.assertNotIn("producer-pause", manifest)
+                self.assertIn(
+                    "job.autoscaler.checkpoint-rescale.producer-pause.enabled: 'true'",
+                    manifest,
+                )
                 self.assertNotIn("__", manifest)
 
 

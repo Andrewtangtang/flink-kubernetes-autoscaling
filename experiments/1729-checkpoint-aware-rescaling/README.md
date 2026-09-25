@@ -1,15 +1,14 @@
 # Q20 checkpoint-aware rescaling pilot
 
 This example runs Q20 with Justin or DS2, fixed Kafka sources (bid P12,
-auction P1), and a fresh checkpoint before rescaling. It does not pause the
-producer or reset Kafka during a run. The 24-hour periodic checkpoint interval
-keeps background checkpoints out of this pilot.
+auction P1), and a fresh checkpoint before rescaling. A controller pauses the
+Docker producer before that checkpoint and resumes the same container after
+the restored job is running. Kafka is never reset during a run. The 24-hour
+periodic checkpoint interval keeps background checkpoints out of this pilot.
 
-The Justin Operator submodule currently points to commit `0c011f9` in
-Andrew's fork. Build the Operator with
+Build the Operator from the pinned submodule with
 `OPERATOR_SOURCE_DIR=sources/operators/flink-kubernetes-operator-justin`;
-the repository default selects A4S. Replace this fork gitlink with an
-upstream-reachable commit before submitting the PR.
+the repository default selects A4S.
 
 Before running, provide compatible Flink/benchmark/Operator images, the
 `flink` service account, and a shared RWX checkpoint PVC. Kafka must be
@@ -37,12 +36,33 @@ kubectl -n "$NAMESPACE" apply --dry-run=server -f "$RUN_DIR/manifest.yaml"
 kubectl -n "$NAMESPACE" apply -f "$RUN_DIR/manifest.yaml"
 ```
 
-When the job is `RUNNING`, start a separate Q20 `insert_kafka_unique`
-producer at 60,000 mixed events/s for 300 million events, with
-`max-emit-speed=false` and `first-event-id=1`. Keep it running through
-rescaling; preserve its log. Use the same producer setup for DS2. The
-existing lab producer script is c153-specific and invokes sudo, so it is
-not part of this portable example.
+When the job is `RUNNING`, prepare a separate Q20 `insert_kafka_unique`
+producer for 60,000 mixed events/s and 300 million events, with
+`max-emit-speed=false` and `first-event-id=1`. The controller needs `kubectl`
+access to the FlinkDeployment/ConfigMap and Docker access to that producer
+container. Configure Docker access locally or with `DOCKER_HOST`. Start the
+controller before starting producer input, and keep it running until the
+transaction completes:
+
+```bash
+python3 experiments/1729-checkpoint-aware-rescaling/checkpoint-producer-controller.py \
+  --namespace "$NAMESPACE" --deployment flink --container insert-kafka \
+  --interval 1 | tee "$RUN_DIR/producer-controller.log"
+```
+
+Replace `insert-kafka` with the actual container name. The controller uses
+Docker `pause`/`unpause`, verifies the container state before acknowledging
+the Operator, and records a pause intent on the FlinkDeployment. If pause
+succeeds but its acknowledgement fails, restarting the controller retries
+safely; if that transaction is aborted, it resumes the container even without
+a pause acknowledgement. A `FAILED` transaction is deliberately fail-closed:
+the controller does not resume the producer; inspect and retry/abort before
+manual intervention. Without a running controller, the Operator waits for an
+ACK and eventually fails the transaction on the configured timeout. Docker
+pause can disrupt producer network connections during a long restore, so
+verify the producer remains healthy and event output advances after resume.
+Then start the producer and keep its **container** alive through rescaling;
+preserve its log. Use the same producer/controller setup for DS2.
 
 Forward Flink REST in a separate shell, then run the observer and save its
 output:
@@ -64,10 +84,11 @@ NAMESPACE="$NAMESPACE" \
   experiments/1729-checkpoint-aware-rescaling/manage-transaction.sh status
 ```
 
-Save the rendered manifest, transaction log, producer log, Operator/JobManager
-logs, Flink checkpoint history, and autoscaler ConfigMap before deleting the
-job. Verify the transaction reaches `COMPLETED`, the gated checkpoint
-completes, the job returns to `RUNNING`, and source parallelism stays P12/P1.
+Save the rendered manifest, transaction and controller logs, producer log,
+Operator/JobManager logs, Flink checkpoint history, and autoscaler ConfigMap
+before deleting the job. Verify the transaction reaches `COMPLETED`, the
+producer is paused before checkpoint trigger and running again only after
+restore, the job returns to `RUNNING`, and source parallelism stays P12/P1.
 The checkpoint ID in the transaction alone does not prove which checkpoint
 Flink restored; check the JobManager restore logs. Checkpoint mode
 `EXACTLY_ONCE` does not by itself establish exactly-once sink output.
