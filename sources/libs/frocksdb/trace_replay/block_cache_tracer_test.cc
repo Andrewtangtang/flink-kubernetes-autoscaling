@@ -4,11 +4,15 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "trace_replay/block_cache_tracer.h"
+#include <cstdio>
+#include <limits>
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "trace_replay/shards_mrc.h"
+#include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -157,6 +161,59 @@ class BlockCacheTracerTest : public testing::Test {
   std::string trace_file_path_;
   std::string test_path_;
 };
+
+#ifdef ROCKSDB_SHARDS_MRC_AVAILABLE
+TEST_F(BlockCacheTracerTest, ShardsR1MatchesTwoBlockLRU) {
+  ShardsMRC mrc(1.0, 3, 1);
+  for (const char* key : {"a", "b", "a", "b"}) {
+    mrc.ProcessAccess(key);
+  }
+  ASSERT_TRUE(mrc.DumpMRC(trace_file_path_));
+  FILE* file = std::fopen(trace_file_path_.c_str(), "rb");
+  ASSERT_NE(file, nullptr);
+  uint64_t header[2];
+  ASSERT_EQ(std::fread(header, sizeof(uint64_t), 2, file), 2U);
+  ASSERT_EQ(header[0], 3U);
+  ASSERT_EQ(header[1], 1U);
+  for (const double expected : {1.0, 1.0, 0.5}) {
+    uint64_t index;
+    double miss_rate;
+    ASSERT_EQ(std::fread(&index, sizeof(index), 1, file), 1U);
+    ASSERT_EQ(std::fread(&miss_rate, sizeof(miss_rate), 1, file), 1U);
+    ASSERT_DOUBLE_EQ(miss_rate, expected);
+  }
+  ASSERT_EQ(std::fclose(file), 0);
+  ASSERT_OK(env_->DeleteFile(trace_file_path_ + ".txt"));
+}
+
+TEST_F(BlockCacheTracerTest, ShardsHashSeedChangesSample) {
+  constexpr uint64_t seed = 0x9e3779b97f4a7c15ULL;
+  const uint64_t threshold = static_cast<uint64_t>(
+      0.01 * static_cast<double>(std::numeric_limits<uint64_t>::max()));
+  ShardsMRC default_mrc(0.01, 10, 1);
+  ShardsMRC zero_seed_mrc(0.01, 10, 1, 0);
+  ShardsMRC seeded_mrc(0.01, 10, 1, seed);
+  uint64_t default_count = 0, seeded_count = 0;
+  bool different = false;
+  for (int i = 0; i < 1000; ++i) {
+    std::string key = "block-" + std::to_string(i);
+    bool selected_default = GetSliceNPHash64(key) <= threshold;
+    bool selected_seeded = GetSliceNPHash64(key, seed) <= threshold;
+    default_count += selected_default;
+    seeded_count += selected_seeded;
+    different |= selected_default != selected_seeded;
+    default_mrc.ProcessAccess(key);
+    zero_seed_mrc.ProcessAccess(key);
+    seeded_mrc.ProcessAccess(key);
+  }
+  ASSERT_TRUE(different);
+  ASSERT_EQ(default_mrc.num_entries_processed(), default_count);
+  ASSERT_EQ(zero_seed_mrc.num_entries_processed(), default_count);
+  ASSERT_EQ(seeded_mrc.num_entries_processed(), seeded_count);
+  ASSERT_TRUE(default_mrc.DumpMRC(trace_file_path_));
+  ASSERT_OK(env_->DeleteFile(trace_file_path_ + ".txt"));
+}
+#endif  // ROCKSDB_SHARDS_MRC_AVAILABLE
 
 TEST_F(BlockCacheTracerTest, AtomicWriteBeforeStartTrace) {
   BlockCacheTraceRecord record = GenerateAccessRecord();

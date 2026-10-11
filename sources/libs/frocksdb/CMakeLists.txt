@@ -770,6 +770,7 @@ set(SOURCES
         tools/trace_analyzer_tool.cc
         trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
+        trace_replay/shards_mrc.cc
         trace_replay/io_tracer.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc

@@ -15,7 +15,8 @@ if(WITH_TOOLS)
     write_stress.cc
     db_repl_stress.cc
     dump/rocksdb_dump.cc
-    dump/rocksdb_undump.cc)
+    dump/rocksdb_undump.cc
+    shards_trace_replay.cc)
   foreach(src ${TOOLS})
     get_filename_component(exename ${src} NAME_WE)
     add_executable(${exename}${ARTIFACT_SUFFIX}
