@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "cache/lru_cache.h"
+#include "cache/shards_mrc_estimator.h"
 #include "include/org_rocksdb_LRUCache.h"
 
 /*
@@ -73,6 +74,51 @@ void Java_org_rocksdb_LRUCache_resetQuickMRCStats(JNIEnv* /*env*/,
   auto* sptr_lru_cache =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache>*>(jhandle);
   (*sptr_lru_cache)->ResetQuickMRCStats();
+}
+
+/*
+ * Class:     org_rocksdb_LRUCache
+ * Method:    enableShardsMrc
+ * Signature: (JDJJJ)V
+ */
+void Java_org_rocksdb_LRUCache_enableShardsMrc(
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jhandle, jdouble jsampling_rate,
+    jlong jhash_seed, jlong jbin_bytes, jlong jmax_distance_bytes) {
+  auto* sptr_lru_cache =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache>*>(jhandle);
+  (*sptr_lru_cache)
+      ->SetShardsMrcEstimator(
+          std::make_shared<ROCKSDB_NAMESPACE::ShardsMrcEstimator>(
+              static_cast<double>(jsampling_rate),
+              static_cast<uint64_t>(jhash_seed),
+              static_cast<uint64_t>(jbin_bytes),
+              static_cast<uint64_t>(jmax_distance_bytes)));
+}
+
+/*
+ * Class:     org_rocksdb_LRUCache
+ * Method:    getShardsMrcHistogram
+ * Signature: (J)[J
+ */
+jlongArray Java_org_rocksdb_LRUCache_getShardsMrcHistogram(JNIEnv* env,
+                                                           jclass /*jcls*/,
+                                                           jlong jhandle) {
+  auto* sptr_lru_cache =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache>*>(jhandle);
+  ROCKSDB_NAMESPACE::ShardsMrcEstimator* estimator =
+      (*sptr_lru_cache)->shards_mrc_estimator();
+  std::vector<uint64_t> snapshot;
+  if (estimator != nullptr) {
+    snapshot = estimator->Snapshot();
+  }
+  jlongArray result = env->NewLongArray(static_cast<jsize>(snapshot.size()));
+  if (result == nullptr || snapshot.empty()) {
+    return result;
+  }
+  std::vector<jlong> java_snapshot(snapshot.begin(), snapshot.end());
+  env->SetLongArrayRegion(result, 0, static_cast<jsize>(java_snapshot.size()),
+                          java_snapshot.data());
+  return result;
 }
 
 /*
