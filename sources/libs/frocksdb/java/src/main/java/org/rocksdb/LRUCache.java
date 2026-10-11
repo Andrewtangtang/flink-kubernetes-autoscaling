@@ -162,10 +162,12 @@ public class LRUCache extends Cache {
    * [8] tracked_bytes: sum of their charges (unscaled)
    * [9] estimator_ns: time spent updating for sampled accesses
    * [10 .. 10+n-1] sampled references with byte distance in
-   *     [i * binBytes, (i + 1) * binBytes), n = ceil(maxDistance / binBytes);
-   *     distances are scaled by 1/R
-   * [10+n] sampled references at infinite distance (first access, or the
-   *     block was dropped by the max distance)
+   *     (i * binBytes, (i + 1) * binBytes], n = ceil(maxDistance / binBytes),
+   *     i.e. hits in a byte-LRU cache of (i + 1) * binBytes; a distance is
+   *     the scaled (1/R) charge of the blocks accessed since the previous
+   *     access plus the block's own charge
+   * [10+n] sampled references at infinite distance (first access, the block
+   *     was dropped by the max distance, or beyond the last bin)
    * </pre>
    * All values except [7] and [8] are monotonic.
    *

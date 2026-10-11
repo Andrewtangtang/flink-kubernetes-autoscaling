@@ -15,6 +15,10 @@ namespace {
 constexpr uint64_t kMinSlots = 1024;
 }  // namespace
 
+uint64_t ShardsMrcEstimator::BinOf(uint64_t distance, uint64_t bin_bytes) {
+  return distance == 0 ? 0 : (distance - 1) / bin_bytes;
+}
+
 ShardsMrcEstimator::ShardsMrcEstimator(double sampling_rate, uint64_t hash_seed,
                                        uint64_t bin_bytes,
                                        uint64_t max_distance_bytes)
@@ -50,12 +54,14 @@ void ShardsMrcEstimator::Access(const Slice& block_key, uint64_t charge) {
     it = blocks_.emplace(std::move(key), 0).first;
     ++histogram_[num_bins_];
   } else {
-    // Bytes of the distinct sampled blocks accessed since the last access to
-    // this block, i.e. the charges of all slots after its slot.
+    // Byte-LRU stack distance: the block hits in a cache of at least this many
+    // bytes. Blocks accessed since its last access (the slots after its slot)
+    // are a 1/R sample, so scale them; its own charge is exact.
     const uint64_t newer = tracked_bytes_ - FenwickPrefix(it->second);
     const uint64_t distance =
-        static_cast<uint64_t>(static_cast<double>(newer) / sampling_rate_);
-    ++histogram_[std::min(distance / bin_bytes_, num_bins_ - 1)];
+        static_cast<uint64_t>(static_cast<double>(newer) / sampling_rate_) +
+        charge;
+    ++histogram_[std::min(BinOf(distance, bin_bytes_), num_bins_)];
     RemoveSlot(it->second);
   }
 

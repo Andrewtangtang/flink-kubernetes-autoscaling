@@ -25,9 +25,10 @@ using AccessTrace =
     std::vector<std::pair<std::string, uint64_t>>;  // key, charge
 
 // Brute-force byte-LRU stack: the distance of a re-access is the sum of the
-// charges of the distinct blocks accessed since the previous access. Returns
-// the histogram of floor(distance / sampling_rate / bin_bytes) for blocks
-// selected by the SHARDS hash test, with the infinite bin last.
+// charges of the distinct blocks accessed since the previous access, divided
+// by sampling_rate, plus the block's own charge. Returns the histogram of
+// ShardsMrcEstimator::BinOf(distance) for blocks selected by the SHARDS hash
+// test, with the infinite bin last (also for distances beyond the last bin).
 std::vector<uint64_t> ReferenceHistogram(const AccessTrace& trace,
                                          double sampling_rate,
                                          uint64_t hash_seed, uint64_t bin_bytes,
@@ -56,8 +57,10 @@ std::vector<uint64_t> ReferenceHistogram(const AccessTrace& trace,
     }
     if (found) {
       uint64_t distance =
-          static_cast<uint64_t>(static_cast<double>(newer) / sampling_rate);
-      ++histogram[std::min(distance / bin_bytes, num_bins - 1)];
+          static_cast<uint64_t>(static_cast<double>(newer) / sampling_rate) +
+          access.second;
+      ++histogram[std::min(ShardsMrcEstimator::BinOf(distance, bin_bytes),
+                           num_bins)];
     } else {
       ++histogram[num_bins];
     }
@@ -169,13 +172,14 @@ TEST(ShardsMrcEstimatorTest, CapEvictsLeastRecentlyUsed) {
     estimator.Access(key, 10);
   }
   // a, b, c, d first accesses; d evicts a; a (evicted, infinite) evicts b;
-  // d has distance 10 (a); c has distance 20 (a, d).
+  // d has distance 20 (a + itself); c has distance 30 (a, d + itself), the
+  // full cap, so it lands in the last finite bin.
   std::vector<uint64_t> s = estimator.Snapshot();
   std::vector<uint64_t> h = BinCounts(s);
   ASSERT_EQ(h.size(), 31U);
   ASSERT_EQ(h[30], 5U);
-  ASSERT_EQ(h[10], 1U);
-  ASSERT_EQ(h[20], 1U);
+  ASSERT_EQ(h[19], 1U);
+  ASSERT_EQ(h[29], 1U);
   ASSERT_EQ(s[ShardsMrcEstimator::kEvictedByCap], 2U);
   ASSERT_EQ(s[ShardsMrcEstimator::kTrackedEntries], 3U);
   ASSERT_EQ(s[ShardsMrcEstimator::kTrackedBytes], 30U);

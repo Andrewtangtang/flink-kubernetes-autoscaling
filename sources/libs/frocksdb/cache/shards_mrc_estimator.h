@@ -17,9 +17,12 @@ namespace ROCKSDB_NAMESPACE {
 // GetSliceNPHash64(block_key, hash_seed) <= sampling_rate * 2^64, the same
 // spatial sampling as the offline ShardsMRC. For a re-access of a sampled
 // block, the distance is the sum of the charges of the distinct sampled blocks
-// accessed since its previous access, divided by sampling_rate. The histogram
-// has fixed byte-width bins over [0, max_distance_bytes] plus one infinite bin
-// that holds first accesses and re-accesses of blocks evicted by the bound.
+// accessed since its previous access, divided by sampling_rate, plus its own
+// charge: the smallest byte-LRU cache in which the access hits. Bin i counts
+// distances in (i * bin_bytes, (i + 1) * bin_bytes], i.e. accesses that hit in
+// a cache of (i + 1) * bin_bytes bytes, so the hits at that size are the sum of
+// bins 0..i. One infinite bin follows; it holds first accesses, re-accesses of
+// blocks evicted by the bound, and distances beyond the last bin.
 //
 // The sample set is bounded: while the tracked charge divided by
 // sampling_rate exceeds max_distance_bytes, the least recently used sampled
@@ -57,6 +60,9 @@ class ShardsMrcEstimator {
   std::vector<uint64_t> Snapshot() const;
 
   uint64_t num_bins() const { return num_bins_; }
+
+  // Histogram bin of a distance (bin i covers (i, i + 1] * bin_bytes).
+  static uint64_t BinOf(uint64_t distance, uint64_t bin_bytes);
 
  private:
   using KeyMap = std::unordered_map<std::string, uint64_t>;  // key -> slot
