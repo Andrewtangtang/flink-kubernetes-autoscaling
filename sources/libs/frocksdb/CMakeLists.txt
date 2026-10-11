@@ -581,6 +581,7 @@ set(SOURCES
         cache/clock_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
+        cache/shards_mrc_estimator.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_file_addition.cc
         db/blob/blob_file_builder.cc
@@ -1078,6 +1079,7 @@ if(WITH_TESTS)
     list(APPEND TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
+        cache/shards_mrc_estimator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
         db/blob/blob_file_cache_test.cc

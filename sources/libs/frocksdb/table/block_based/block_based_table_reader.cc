@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "cache/sharded_cache.h"
+#include "cache/shards_mrc_estimator.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "file/file_prefetch_buffer.h"
@@ -217,6 +218,23 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
   return heap_buf;
 }
 }  // namespace
+
+ShardsMrcEstimator* BlockBasedTable::GetShardsMrcEstimator() const {
+  Cache* block_cache = rep_->table_options.block_cache.get();
+  return block_cache != nullptr ? block_cache->shards_mrc_estimator()
+                                : nullptr;
+}
+
+void BlockBasedTable::RecordShardsMrcAccess(TraceType block_type,
+                                            TableReaderCaller caller,
+                                            const Slice& block_key,
+                                            uint64_t block_size) const {
+  ShardsMrcEstimator* estimator = GetShardsMrcEstimator();
+  if (estimator != nullptr &&
+      BlockCacheTraceHelper::IsUserDataBlockAccess(block_type, caller)) {
+    estimator->Access(block_key, block_size);
+  }
+}
 
 void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
                                             GetContext* get_context,
@@ -1543,7 +1561,9 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
   }
 
   // Fill lookup_context.
-  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+  const bool tracing_enabled =
+      block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled();
+  if ((tracing_enabled || GetShardsMrcEstimator() != nullptr) &&
       lookup_context) {
     size_t usage = 0;
     uint64_t nkeys = 0;
@@ -1587,22 +1607,26 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
           is_cache_hit, no_insert, trace_block_type,
           /*block_size=*/usage, /*block_key=*/key.ToString(), nkeys);
     } else {
-      // Avoid making copy of block_key and cf_name when constructing the access
-      // record.
-      BlockCacheTraceRecord access_record(
-          rep_->ioptions.clock->NowMicros(),
-          /*block_key=*/"", trace_block_type,
-          /*block_size=*/usage, rep_->cf_id_for_tracing(),
-          /*cf_name=*/"", rep_->level_for_tracing(),
-          rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
-          no_insert, lookup_context->get_id,
-          lookup_context->get_from_user_specified_snapshot,
-          /*referenced_key=*/"");
-      // TODO: Should handle this error?
-      block_cache_tracer_
-          ->WriteBlockAccess(access_record, key, rep_->cf_name_for_tracing(),
-                             lookup_context->referenced_key)
-          .PermitUncheckedError();
+      RecordShardsMrcAccess(trace_block_type, lookup_context->caller, key,
+                            usage);
+      if (tracing_enabled) {
+        // Avoid making copy of block_key and cf_name when constructing the
+        // access record.
+        BlockCacheTraceRecord access_record(
+            rep_->ioptions.clock->NowMicros(),
+            /*block_key=*/"", trace_block_type,
+            /*block_size=*/usage, rep_->cf_id_for_tracing(),
+            /*cf_name=*/"", rep_->level_for_tracing(),
+            rep_->sst_number_for_tracing(), lookup_context->caller,
+            is_cache_hit, no_insert, lookup_context->get_id,
+            lookup_context->get_from_user_specified_snapshot,
+            /*referenced_key=*/"");
+        // TODO: Should handle this error?
+        block_cache_tracer_
+            ->WriteBlockAccess(access_record, key, rep_->cf_name_for_tracing(),
+                               lookup_context->referenced_key)
+            .PermitUncheckedError();
+      }
     }
   }
 
@@ -2418,6 +2442,10 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         }
         s = biter.status();
       }
+      RecordShardsMrcAccess(lookup_data_block_context.block_type,
+                            lookup_data_block_context.caller,
+                            lookup_data_block_context.block_key,
+                            lookup_data_block_context.block_size);
       // Write the block cache access record.
       if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
         // Avoid making copy of block_key, cf_name, and referenced_key when
@@ -2756,6 +2784,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           }
           s = biter->status();
         }
+        RecordShardsMrcAccess(lookup_data_block_context.block_type,
+                              lookup_data_block_context.caller,
+                              lookup_data_block_context.block_key,
+                              lookup_data_block_context.block_size);
         // Write the block cache access.
         if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
           // Avoid making copy of block_key, cf_name, and referenced_key when

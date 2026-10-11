@@ -30,6 +30,10 @@ class BlockCacheTraceHelper {
                                          TableReaderCaller caller);
   static bool IsGetOrMultiGet(TableReaderCaller caller);
   static bool IsUserAccess(TableReaderCaller caller);
+  // Data-block access from user Get, MultiGet, or Iterator; the stream the
+  // SHARDS MRC estimator models.
+  static bool IsUserDataBlockAccess(TraceType block_type,
+                                    TableReaderCaller caller);
   // Row key is a concatenation of the access's fd_number and the referenced
   // user key.
   static std::string ComputeRowKey(const BlockCacheTraceRecord& access);

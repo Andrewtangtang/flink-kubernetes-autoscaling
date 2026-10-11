@@ -43,6 +43,13 @@ bool BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(
          IsGetOrMultiGet(caller);
 }
 
+bool BlockCacheTraceHelper::IsUserDataBlockAccess(TraceType block_type,
+                                                  TableReaderCaller caller) {
+  return block_type == TraceType::kBlockTraceDataBlock &&
+         (IsGetOrMultiGet(caller) ||
+          caller == TableReaderCaller::kUserIterator);
+}
+
 bool BlockCacheTraceHelper::IsGetOrMultiGet(TableReaderCaller caller) {
   return caller == TableReaderCaller::kUserGet ||
          caller == TableReaderCaller::kUserMultiGet;

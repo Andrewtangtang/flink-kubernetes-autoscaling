@@ -35,6 +35,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 struct ConfigOptions;
+class ShardsMrcEstimator;
 
 extern const bool kDefaultToAdaptiveMutex;
 
@@ -323,8 +324,19 @@ class Cache {
 
   MemoryAllocator* memory_allocator() const { return memory_allocator_.get(); }
 
+  // Optional SHARDS miss-ratio-curve estimator owned by this cache.
+  // BlockBasedTable feeds it the data-block accesses of user Get, MultiGet,
+  // and iterators. Not synchronized: set it before the cache is used by a DB.
+  void SetShardsMrcEstimator(std::shared_ptr<ShardsMrcEstimator> estimator) {
+    shards_mrc_estimator_ = std::move(estimator);
+  }
+  ShardsMrcEstimator* shards_mrc_estimator() const {
+    return shards_mrc_estimator_.get();
+  }
+
  private:
   std::shared_ptr<MemoryAllocator> memory_allocator_;
+  std::shared_ptr<ShardsMrcEstimator> shards_mrc_estimator_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

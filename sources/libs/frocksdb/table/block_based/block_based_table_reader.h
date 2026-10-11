@@ -261,6 +261,15 @@ class BlockBasedTable : public TableReader {
   static std::atomic<uint64_t> next_cache_key_id_;
   BlockCacheTracer* const block_cache_tracer_;
 
+  // The block cache's SHARDS MRC estimator, or nullptr.
+  ShardsMrcEstimator* GetShardsMrcEstimator() const;
+  // Feeds a block access to the estimator if it is a user data-block access.
+  // Called next to BlockCacheTracer::WriteBlockAccess so that the estimator
+  // sees exactly the accesses a block cache trace records.
+  void RecordShardsMrcAccess(TraceType block_type, TableReaderCaller caller,
+                             const Slice& block_key,
+                             uint64_t block_size) const;
+
   void UpdateCacheHitMetrics(BlockType block_type, GetContext* get_context,
                              size_t usage) const;
   void UpdateCacheMissMetrics(BlockType block_type,
