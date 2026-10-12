@@ -40,6 +40,8 @@ under the License.
 			chill ArraysAsListSerializer
 			-->--add-opens=java.base/java.util=ALL-UNNAMED
 		</surefire.module.config>
+		<!-- Custom FRocksDB (QuickMRC + SHARDS) jar, installed by the image build. -->
+		<frocksdbjni.version>6.20.3-custom</frocksdbjni.version>
 	</properties>
 
 	<dependencies>
@@ -63,7 +65,7 @@ under the License.
 		<dependency>
 			<groupId>org.rocksdb</groupId>
 			<artifactId>frocksdbjni</artifactId>
-			<version>6.20.3-custom</version>
+			<version>${frocksdbjni.version}</version>
 		</dependency>
 
 		<!-- test dependencies -->

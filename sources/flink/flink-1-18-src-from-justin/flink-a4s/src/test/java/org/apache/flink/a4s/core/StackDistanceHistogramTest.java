@@ -194,4 +194,107 @@ public class StackDistanceHistogramTest {
         assertEquals(8L, parsed.getBucketSizeScaling());
         assertEquals(4096L, parsed.getCacheItemSizeBytes());
     }
+
+    /** Header (R=0.01, seed 7, bin 1 MiB, D_cap 3 MiB, counters), 3 finite bins, infinite bin. */
+    static long[] shardsArray(long totalRefs, long b0, long b1, long b2, long inf) {
+        return new long[] {
+            Double.doubleToRawLongBits(0.01),
+            7L,
+            1L << 20,
+            3L << 20,
+            totalRefs,
+            b0 + b1 + b2 + inf,
+            1L,
+            2L,
+            3L,
+            4L,
+            b0,
+            b1,
+            b2,
+            inf
+        };
+    }
+
+    @Test
+    void testFromShardsMrcArray_parsesHeaderAndBins() {
+        StackDistanceHistogram h =
+                StackDistanceHistogram.fromShardsMrcArray(shardsArray(1000L, 4L, 3L, 2L, 1L));
+
+        assertEquals(2, h.getVersion());
+        assertEquals(0.01, h.getShards().getSamplingRate());
+        assertEquals(7L, h.getShards().getHashSeed());
+        assertEquals(1L << 20, h.getShards().getBinBytes());
+        assertEquals(3L << 20, h.getShards().getMaxDistanceBytes());
+        assertEquals(1000L, h.getShards().getTotalRefs());
+        assertEquals(10L, h.getShards().getSampledRefs());
+        assertEquals(4L, h.getShards().getEstimatorNanos());
+        assertEquals(3, h.getNumBuckets());
+        assertEquals(4L, h.getFrequency(0));
+        assertEquals(2L, h.getFrequency(2));
+        assertEquals(1L, h.getCompleteMisses());
+        assertEquals(1, h.getNumPartitions());
+
+        StackDistanceHistogram roundTrip =
+                StackDistanceHistogram.fromMetricString(h.toMetricString());
+        assertEquals(2, roundTrip.getVersion());
+        assertEquals(10L, roundTrip.getShards().getSampledRefs());
+        assertEquals(h.getHistogramFingerprint(), roundTrip.getHistogramFingerprint());
+    }
+
+    @Test
+    void testQuickMrcPayloadStaysVersion1() {
+        StackDistanceHistogram h = new StackDistanceHistogram(new long[] {1L}, 0L, 1, 1L, 4096L);
+        assertEquals(1, h.getVersion());
+        assertTrue(!h.toMetricString().contains("\"shards\""));
+        assertEquals(1, StackDistanceHistogram.fromMetricString(h.toMetricString()).getVersion());
+    }
+
+    @Test
+    void testMergeShards_usesVertexParallelismAndAddsCounts() {
+        StackDistanceHistogram h1 =
+                StackDistanceHistogram.fromShardsMrcArray(shardsArray(1000L, 4L, 3L, 2L, 1L));
+        StackDistanceHistogram h2 =
+                StackDistanceHistogram.fromShardsMrcArray(shardsArray(500L, 1L, 1L, 0L, 3L));
+
+        // Only 2 of 3 subtasks reported: the x-axis must still scale by 3.
+        StackDistanceHistogram merged = StackDistanceHistogram.mergeShards(List.of(h1, h2), 3);
+
+        assertEquals(3, merged.getNumPartitions());
+        assertEquals(5L, merged.getFrequency(0));
+        assertEquals(4L, merged.getFrequency(1));
+        assertEquals(2L, merged.getFrequency(2));
+        assertEquals(4L, merged.getCompleteMisses());
+        assertEquals(1500L, merged.getShards().getTotalRefs());
+        assertEquals(15L, merged.getShards().getSampledRefs());
+        assertEquals(merged.getShards().getSampledRefs(), merged.getTotalFrequency());
+        assertEquals(1L << 20, merged.getShards().getBinBytes());
+
+        MissRateCurve mrc = MissRateCurve.fromStackDistanceHistogram(merged);
+        assertEquals(3L << 20, mrc.getPoints().get(0).getCacheSizeBytes());
+    }
+
+    @Test
+    void testMergeShards_rejectsMixedOrMismatchedInputs() {
+        StackDistanceHistogram shards =
+                StackDistanceHistogram.fromShardsMrcArray(shardsArray(1L, 1L, 0L, 0L, 0L));
+        StackDistanceHistogram quickMrc =
+                new StackDistanceHistogram(new long[] {1L}, 0L, 1, 1L, 4096L);
+        long[] otherSeed = shardsArray(1L, 1L, 0L, 0L, 0L);
+        otherSeed[1] = 8L;
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> StackDistanceHistogram.mergeShards(List.of(shards, quickMrc), 2));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        StackDistanceHistogram.mergeShards(
+                                List.of(
+                                        shards,
+                                        StackDistanceHistogram.fromShardsMrcArray(otherSeed)),
+                                2));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> StackDistanceHistogram.mergeShards(List.of(shards, shards), 1));
+    }
 }

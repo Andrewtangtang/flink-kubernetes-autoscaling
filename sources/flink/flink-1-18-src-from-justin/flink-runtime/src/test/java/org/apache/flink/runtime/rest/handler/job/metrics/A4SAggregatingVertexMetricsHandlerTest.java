@@ -23,6 +23,8 @@ import org.apache.flink.a4s.core.StackDistanceHistogram;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.MetricOptions;
+import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
+import org.apache.flink.runtime.executiongraph.ArchivedExecutionJobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.metrics.dump.MetricDump;
 import org.apache.flink.runtime.metrics.dump.QueryScopeInfo;
@@ -61,6 +63,10 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /** Tests for {@link A4SAggregatingVertexMetricsHandler}. */
 public class A4SAggregatingVertexMetricsHandlerTest extends TestLogger {
@@ -262,5 +268,56 @@ public class A4SAggregatingVertexMetricsHandlerTest extends TestLogger {
                     rhe.getHttpResponseStatus(), equalTo(HttpResponseStatus.INTERNAL_SERVER_ERROR));
             assertThat(rhe.getMessage(), equalTo("Could not retrieve A4S metrics."));
         }
+    }
+
+    private static String shardsHistogram(long b0, long b1, long inf) {
+        long[] raw = {
+            Double.doubleToRawLongBits(0.01),
+            0L,
+            1L << 20,
+            2L << 20,
+            100L * (b0 + b1 + inf),
+            b0 + b1 + inf,
+            0L,
+            0L,
+            0L,
+            0L,
+            b0,
+            b1,
+            inf
+        };
+        return StackDistanceHistogram.fromShardsMrcArray(raw).toMetricString();
+    }
+
+    @Test
+    public void testShardsHistogramsScaleByVertexParallelism() throws Exception {
+        // Two of three subtasks have reported.
+        for (int subtask = 0; subtask < 2; subtask++) {
+            metricStore.add(
+                    new MetricDump.GaugeDump(
+                            new QueryScopeInfo.TaskQueryScopeInfo(
+                                    jobId.toString(), jobVertexId.toString(), subtask, 0, ""),
+                            "op.rocksdb.stack-distance-histogram",
+                            shardsHistogram(3L, 1L, 1L)));
+        }
+        ArchivedExecutionJobVertex vertex = mock(ArchivedExecutionJobVertex.class);
+        when(vertex.getParallelism()).thenReturn(3);
+        ArchivedExecutionGraph graph = mock(ArchivedExecutionGraph.class);
+        when(graph.getJobVertex(jobVertexId)).thenReturn(vertex);
+        when(restfulGateway.requestJob(eq(jobId), any()))
+                .thenReturn(CompletableFuture.completedFuture(graph));
+
+        MissRateCurve curve =
+                handler.handleRequest(
+                                createRequest(jobId.toString(), jobVertexId.toString()),
+                                restfulGateway)
+                        .get()
+                        .getScaledMrc();
+
+        assertThat(curve.getPoints(), hasSize(2));
+        assertThat(curve.getPoints().get(0).getCacheSizeBytes(), equalTo(3L << 20));
+        assertThat(curve.getPoints().get(0).getMissRate(), closeTo(0.4, 1.0e-9));
+        assertThat(curve.getPoints().get(1).getCacheSizeBytes(), equalTo(6L << 20));
+        assertThat(curve.getPoints().get(1).getMissRate(), closeTo(0.2, 1.0e-9));
     }
 }

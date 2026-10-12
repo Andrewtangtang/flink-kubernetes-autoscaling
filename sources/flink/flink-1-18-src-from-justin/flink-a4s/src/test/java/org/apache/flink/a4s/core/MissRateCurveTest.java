@@ -77,4 +77,28 @@ class MissRateCurveTest {
 
         assertEquals(200L, mrc.leastMemoryBytesForMissRate(0.3));
     }
+
+    @Test
+    void testShardsMrc_fromHandBuiltBins() {
+        // Bins (1 MiB): 4, 3, 2 sampled hits; 1 infinite. 10 sampled refs. Parallelism 2.
+        StackDistanceHistogram merged =
+                StackDistanceHistogram.mergeShards(
+                        List.of(
+                                StackDistanceHistogram.fromShardsMrcArray(
+                                        StackDistanceHistogramTest.shardsArray(
+                                                1000L, 4L, 3L, 2L, 1L))),
+                        2);
+
+        List<MissRateCurve.Point> points =
+                MissRateCurve.fromStackDistanceHistogram(merged).getPoints();
+
+        long mib = 1L << 20;
+        assertEquals(3, points.size());
+        assertEquals(2 * mib, points.get(0).getCacheSizeBytes());
+        assertEquals(0.6, points.get(0).getMissRate(), 1e-12);
+        assertEquals(4 * mib, points.get(1).getCacheSizeBytes());
+        assertEquals(0.3, points.get(1).getMissRate(), 1e-12);
+        assertEquals(6 * mib, points.get(2).getCacheSizeBytes());
+        assertEquals(0.1, points.get(2).getMissRate(), 1e-12);
+    }
 }

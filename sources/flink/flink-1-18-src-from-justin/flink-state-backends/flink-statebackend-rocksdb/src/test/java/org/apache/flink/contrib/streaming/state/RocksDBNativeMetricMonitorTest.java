@@ -18,6 +18,7 @@
 
 package org.apache.flink.contrib.streaming.state;
 
+import org.apache.flink.a4s.core.StackDistanceHistogram;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.MetricOptions;
 import org.apache.flink.metrics.Metric;
@@ -30,6 +31,7 @@ import org.apache.flink.runtime.metrics.scope.ScopeFormats;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.LRUCache;
 import org.rocksdb.RocksDBException;
 
 import java.math.BigInteger;
@@ -207,7 +209,61 @@ class RocksDBNativeMetricMonitorTest {
         }
     }
 
+    @Test
+    void testShardsHistogramReportedOncePerSharedCache() throws Exception {
+        SimpleMetricRegistry registry = new SimpleMetricRegistry();
+        GenericMetricGroup group =
+                new GenericMetricGroup(
+                        registry,
+                        UnregisteredMetricGroups.createUnregisteredTaskMetricGroup(),
+                        OPERATOR_NAME);
+        RocksDBNativeMetricOptions options = new RocksDBNativeMetricOptions();
+        options.enableStackDistanceHistogram();
+
+        try (LRUCache cache = new LRUCache(8L << 20, -1, false, 0.1, false, 60, 1, 0.01, 1)) {
+            cache.enableShardsMrc(0.01, 0L, 1L << 20, 4L << 20);
+
+            RocksDBNativeMetricMonitor first =
+                    new RocksDBNativeMetricMonitor(
+                            options, group, rocksDBExtension.getRocksDB(), null, cache);
+            RocksDBNativeMetricMonitor second =
+                    new RocksDBNativeMetricMonitor(
+                            options, group, rocksDBExtension.getRocksDB(), null, cache);
+
+            assertThat(registry.histogramViews).hasSize(1);
+            assertThat(registry.metricNames).contains("rocksdb.a4s.shards.sampled-refs");
+
+            RocksDBNativeMetricMonitor.RocksDBStackDistanceHistogramView view =
+                    registry.histogramViews.get(0);
+            view.update();
+            StackDistanceHistogram histogram =
+                    StackDistanceHistogram.fromMetricString(view.getValue());
+            assertThat(histogram.getVersion()).isEqualTo(2);
+            assertThat(histogram.getNumBuckets()).isEqualTo(4);
+            assertThat(histogram.getShards().getBinBytes()).isEqualTo(1L << 20);
+
+            // Once the reporting backend closes, the next backend of the slot may report.
+            first.close();
+            second.close();
+            GenericMetricGroup otherGroup =
+                    new GenericMetricGroup(
+                            registry,
+                            UnregisteredMetricGroups.createUnregisteredTaskMetricGroup(),
+                            "other");
+            RocksDBNativeMetricMonitor third =
+                    new RocksDBNativeMetricMonitor(
+                            options, otherGroup, rocksDBExtension.getRocksDB(), null, cache);
+            assertThat(registry.histogramViews).hasSize(2);
+            third.close();
+        }
+    }
+
     static class SimpleMetricRegistry implements MetricRegistry {
+        List<RocksDBNativeMetricMonitor.RocksDBStackDistanceHistogramView> histogramViews =
+                new ArrayList<>();
+
+        List<String> metricNames = new ArrayList<>();
+
         List<RocksDBNativeMetricMonitor.RocksDBNativePropertyMetricView> propertyMetrics =
                 new ArrayList<>();
 
@@ -226,6 +282,11 @@ class RocksDBNativeMetricMonitorTest {
 
         @Override
         public void register(Metric metric, String metricName, AbstractMetricGroup group) {
+            metricNames.add(metricName);
+            if (metric instanceof RocksDBNativeMetricMonitor.RocksDBStackDistanceHistogramView) {
+                histogramViews.add(
+                        (RocksDBNativeMetricMonitor.RocksDBStackDistanceHistogramView) metric);
+            }
             if (metric instanceof RocksDBNativeMetricMonitor.RocksDBNativePropertyMetricView) {
                 propertyMetrics.add(
                         (RocksDBNativeMetricMonitor.RocksDBNativePropertyMetricView) metric);

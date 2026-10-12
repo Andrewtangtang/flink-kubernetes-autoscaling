@@ -167,6 +167,7 @@ enum RocksDBSharedResourcesFactory {
                         config.getQuickMrcGhostCacheMultiplier(),
                         config.getQuickMrcSamplingRate(),
                         config.getQuickMrcHistogramBinSize(),
+                        config.getShardsMrcSettings(),
                         rocksDBMemoryFactory);
     }
 }

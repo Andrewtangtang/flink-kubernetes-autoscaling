@@ -19,6 +19,7 @@
 package org.apache.flink.contrib.streaming.state;
 
 import org.apache.flink.a4s.core.StackDistanceHistogram;
+import org.apache.flink.a4s.core.StackDistanceHistogram.ShardsHeader;
 import org.apache.flink.a4s.logging.A4SMetricsFlowStep;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.metrics.Gauge;
@@ -41,6 +42,12 @@ import javax.annotation.concurrent.GuardedBy;
 
 import java.io.Closeable;
 import java.math.BigInteger;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.ToLongFunction;
 
 /**
  * A monitor which pulls {{@link RocksDB}} native metrics and forwards them to Flink's metric group.
@@ -66,6 +73,21 @@ public class RocksDBNativeMetricMonitor implements Closeable {
     private Statistics statistics;
 
     @Nullable private final LRUCache lruCache;
+
+    /**
+     * Shared block caches whose MRC histogram is already reported by some monitor. The cache is per
+     * slot while there is one monitor per keyed backend, so only the first monitor of a cache
+     * reports it; otherwise the histogram would be counted once per backend.
+     */
+    @GuardedBy("HISTOGRAM_REPORTING_CACHES")
+    private static final Set<Cache> HISTOGRAM_REPORTING_CACHES =
+            Collections.newSetFromMap(new IdentityHashMap<>());
+
+    /** The cache this monitor reports the histogram of, or null. */
+    @Nullable private LRUCache reportedCache;
+
+    /** Whether the cache's SHARDS estimator is enabled (fixed when the cache is created). */
+    private boolean shardsEnabled;
 
     public RocksDBNativeMetricMonitor(
             @Nonnull RocksDBNativeMetricOptions options,
@@ -96,12 +118,61 @@ public class RocksDBNativeMetricMonitor implements Closeable {
 
     /** Registers the stack distance histogram metric if enabled. */
     private void registerStackDistanceHistogram() {
-        if (options.isStackDistanceHistogramEnabled()) {
-            LOG.info("Registering stack distance histogram metric for RocksDB.");
-            RocksDBStackDistanceHistogramView view =
-                    new RocksDBStackDistanceHistogramView(lruCache);
-            metricGroup.gauge("rocksdb.stack-distance-histogram", view);
+        if (!options.isStackDistanceHistogramEnabled()) {
+            return;
         }
+        if (lruCache != null) {
+            synchronized (HISTOGRAM_REPORTING_CACHES) {
+                if (!HISTOGRAM_REPORTING_CACHES.add(lruCache)) {
+                    LOG.warn(
+                            "The shared block cache is already reported by another keyed backend "
+                                    + "in this slot; not registering its stack distance "
+                                    + "histogram again. The MRC mixes all stateful operators "
+                                    + "that share the slot.");
+                    return;
+                }
+            }
+            reportedCache = lruCache;
+            shardsEnabled = lruCache.getShardsMrcHistogram().length > 0;
+        }
+        LOG.info(
+                "Registering stack distance histogram metric for RocksDB (estimator: {}).",
+                shardsEnabled ? "SHARDS" : "QuickMRC");
+        RocksDBStackDistanceHistogramView view = new RocksDBStackDistanceHistogramView(lruCache);
+        metricGroup.gauge("rocksdb.stack-distance-histogram", view);
+        if (shardsEnabled) {
+            registerShardsHeaderGauges(view);
+        }
+    }
+
+    /** Exposes the SHARDS header, e.g. to watch sampled-refs / (R * total-refs). */
+    private void registerShardsHeaderGauges(RocksDBStackDistanceHistogramView view) {
+        metricGroup.gauge(
+                "rocksdb.a4s.shards.sampling-rate",
+                (Gauge<Double>)
+                        () -> {
+                            ShardsHeader header = view.getLatestShardsHeader();
+                            return header == null ? 0.0 : header.getSamplingRate();
+                        });
+        Map<String, ToLongFunction<ShardsHeader>> fields = new LinkedHashMap<>();
+        fields.put("hash-seed", ShardsHeader::getHashSeed);
+        fields.put("bin-bytes", ShardsHeader::getBinBytes);
+        fields.put("max-distance-bytes", ShardsHeader::getMaxDistanceBytes);
+        fields.put("total-refs", ShardsHeader::getTotalRefs);
+        fields.put("sampled-refs", ShardsHeader::getSampledRefs);
+        fields.put("evicted-by-cap", ShardsHeader::getEvictedByCap);
+        fields.put("tracked-entries", ShardsHeader::getTrackedEntries);
+        fields.put("tracked-bytes", ShardsHeader::getTrackedBytes);
+        fields.put("estimator-ns", ShardsHeader::getEstimatorNanos);
+        fields.forEach(
+                (name, field) ->
+                        metricGroup.gauge(
+                                "rocksdb.a4s.shards." + name,
+                                (Gauge<Long>)
+                                        () -> {
+                                            ShardsHeader header = view.getLatestShardsHeader();
+                                            return header == null ? 0L : field.applyAsLong(header);
+                                        }));
     }
 
     /**
@@ -159,6 +230,12 @@ public class RocksDBNativeMetricMonitor implements Closeable {
         synchronized (lock) {
             rocksDB = null;
             statistics = null;
+        }
+        if (reportedCache != null) {
+            synchronized (HISTOGRAM_REPORTING_CACHES) {
+                HISTOGRAM_REPORTING_CACHES.remove(reportedCache);
+            }
+            reportedCache = null;
         }
     }
 
@@ -271,7 +348,8 @@ public class RocksDBNativeMetricMonitor implements Closeable {
         @Override
         public void update() {
             synchronized (lock) {
-                if (isClosed()) {
+                // A closed monitor must not touch the cache, which the slot may have released.
+                if (isClosed() || rocksDB == null) {
                     return;
                 }
                 if (viewLruCache == null) {
@@ -288,6 +366,19 @@ public class RocksDBNativeMetricMonitor implements Closeable {
                     return;
                 }
                 try {
+                    if (shardsEnabled) {
+                        // Cumulative and monotonic: never reset on read.
+                        latestHistogram =
+                                StackDistanceHistogram.fromShardsMrcArray(
+                                        viewLruCache.getShardsMrcHistogram());
+                        LOG.debug(
+                                "A4S [{}]: histogramFingerprint={} numBuckets={} sampledRefs={}",
+                                A4SMetricsFlowStep.ROCKSDB_HISTOGRAM_UPDATED.name(),
+                                latestHistogram.getHistogramFingerprint(),
+                                latestHistogram.getNumBuckets(),
+                                latestHistogram.getShards().getSampledRefs());
+                        return;
+                    }
                     long[] histogramCounts = viewLruCache.getStackDistanceHistogram();
                     viewLruCache.resetQuickMRCStats();
                     if (histogramCounts == null) {
@@ -341,6 +432,13 @@ public class RocksDBNativeMetricMonitor implements Closeable {
                             e);
                     latestHistogram = empty;
                 }
+            }
+        }
+
+        @Nullable
+        ShardsHeader getLatestShardsHeader() {
+            synchronized (lock) {
+                return latestHistogram == null ? null : latestHistogram.getShards();
             }
         }
 

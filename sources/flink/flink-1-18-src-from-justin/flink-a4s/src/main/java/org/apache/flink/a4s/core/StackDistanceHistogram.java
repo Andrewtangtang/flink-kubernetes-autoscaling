@@ -4,14 +4,27 @@ import org.apache.flink.util.jackson.JacksonMapperFactory;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonInclude;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
+
+import javax.annotation.Nullable;
 
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.List;
 
-/** Stack distance histogram with fixed-order bucket counts. */
+/**
+ * Stack distance histogram with fixed-order bucket counts.
+ *
+ * <p>Version 1 is a QuickMRC histogram: bucket i counts distances in units of {@code
+ * bucketSizeScaling * cacheItemSizeBytes}, and {@code numPartitions} is the number of merged
+ * subtask histograms. Version 2 is a SHARDS histogram (it carries a {@link ShardsHeader}): bucket i
+ * counts unscaled sampled references with byte distance in {@code (i * binBytes, (i + 1) *
+ * binBytes]}, {@code completeMisses} is the infinite bin, {@code bucketSizeScaling} is 1, {@code
+ * cacheItemSizeBytes} is {@code binBytes}, and after {@link #mergeShards} {@code numPartitions} is
+ * the vertex parallelism.
+ */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class StackDistanceHistogram implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -22,6 +35,22 @@ public class StackDistanceHistogram implements Serializable {
     private final int numPartitions;
     private final long bucketSizeScaling;
     private final long cacheItemSizeBytes;
+    @Nullable private final ShardsHeader shards;
+
+    public StackDistanceHistogram(
+            long[] bucketCounts,
+            long completeMisses,
+            int numPartitions,
+            long bucketSizeScaling,
+            long cacheItemSizeBytes) {
+        this(
+                bucketCounts,
+                completeMisses,
+                numPartitions,
+                bucketSizeScaling,
+                cacheItemSizeBytes,
+                null);
+    }
 
     @JsonCreator
     public StackDistanceHistogram(
@@ -29,7 +58,8 @@ public class StackDistanceHistogram implements Serializable {
             @JsonProperty("completeMisses") long completeMisses,
             @JsonProperty("numPartitions") int numPartitions,
             @JsonProperty("bucketSizeScaling") long bucketSizeScaling,
-            @JsonProperty("cacheItemSizeBytes") long cacheItemSizeBytes) {
+            @JsonProperty("cacheItemSizeBytes") long cacheItemSizeBytes,
+            @JsonProperty("shards") @Nullable ShardsHeader shards) {
         validateCounts(bucketCounts);
         validateCompleteMisses(completeMisses);
         validateBucketSizeScaling(bucketSizeScaling);
@@ -39,6 +69,25 @@ public class StackDistanceHistogram implements Serializable {
         this.numPartitions = numPartitions;
         this.bucketSizeScaling = bucketSizeScaling;
         this.cacheItemSizeBytes = cacheItemSizeBytes;
+        this.shards = shards;
+    }
+
+    /**
+     * Parses the array returned by {@code LRUCache#getShardsMrcHistogram()}: {@link
+     * ShardsHeader#LENGTH} header fields, the finite bins, then the infinite bin.
+     */
+    public static StackDistanceHistogram fromShardsMrcArray(long[] raw) {
+        if (raw == null || raw.length < ShardsHeader.LENGTH + 1) {
+            throw new IllegalArgumentException("SHARDS histogram array is too short");
+        }
+        ShardsHeader header = ShardsHeader.fromArray(raw);
+        return new StackDistanceHistogram(
+                Arrays.copyOfRange(raw, ShardsHeader.LENGTH, raw.length - 1),
+                raw[raw.length - 1],
+                1,
+                1L,
+                header.getBinBytes(),
+                header);
     }
 
     public String toMetricString() {
@@ -116,6 +165,18 @@ public class StackDistanceHistogram implements Serializable {
         return cacheItemSizeBytes;
     }
 
+    @JsonProperty("shards")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @Nullable
+    public ShardsHeader getShards() {
+        return shards;
+    }
+
+    /** 1 for a QuickMRC histogram, 2 for a SHARDS histogram. */
+    public int getVersion() {
+        return shards == null ? 1 : 2;
+    }
+
     public long getCompleteMisses() {
         return completeMisses;
     }
@@ -182,6 +243,43 @@ public class StackDistanceHistogram implements Serializable {
                 mergedCacheItemSizeBytes);
     }
 
+    /**
+     * Merges SHARDS (v2) histograms of the subtasks of one vertex by adding counts. The result's
+     * {@code numPartitions} is {@code vertexParallelism}, not the number of reporting subtasks, so
+     * a subtask that has not reported yet does not shrink the operator-level memory axis.
+     */
+    public static StackDistanceHistogram mergeShards(
+            List<StackDistanceHistogram> histograms, int vertexParallelism) {
+        if (histograms == null || histograms.isEmpty()) {
+            throw new IllegalArgumentException("Cannot merge empty list of histograms");
+        }
+        if (vertexParallelism < histograms.size()) {
+            throw new IllegalArgumentException(
+                    "Vertex parallelism "
+                            + vertexParallelism
+                            + " is smaller than the number of histograms "
+                            + histograms.size());
+        }
+        ShardsHeader header = null;
+        long[] counts = new long[0];
+        long completeMisses = 0L;
+        for (StackDistanceHistogram histogram : histograms) {
+            if (histogram.shards == null) {
+                throw new IllegalArgumentException("Cannot merge a QuickMRC histogram as SHARDS");
+            }
+            header = header == null ? histogram.shards : header.add(histogram.shards);
+            if (histogram.bucketCounts.length > counts.length) {
+                counts = Arrays.copyOf(counts, histogram.bucketCounts.length);
+            }
+            for (int i = 0; i < histogram.bucketCounts.length; i++) {
+                counts[i] += histogram.bucketCounts[i];
+            }
+            completeMisses += histogram.completeMisses;
+        }
+        return new StackDistanceHistogram(
+                counts, completeMisses, vertexParallelism, 1L, header.getBinBytes(), header);
+    }
+
     public long getTotalFrequency() {
         long total = 0L;
         for (long count : this.bucketCounts) {
@@ -208,5 +306,131 @@ public class StackDistanceHistogram implements Serializable {
                 bucketSizeScaling,
                 cacheItemSizeBytes,
                 getTotalFrequency());
+    }
+
+    /**
+     * Header of a SHARDS histogram, as returned by {@code LRUCache#getShardsMrcHistogram()}.
+     * Counters are cumulative since the cache was created and never reset.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class ShardsHeader implements Serializable {
+        private static final long serialVersionUID = 1L;
+
+        /** Number of header fields before the bins in the native array. */
+        public static final int LENGTH = 10;
+
+        private final double samplingRate;
+        private final long hashSeed;
+        private final long binBytes;
+        private final long maxDistanceBytes;
+        private final long totalRefs;
+        private final long sampledRefs;
+        private final long evictedByCap;
+        private final long trackedEntries;
+        private final long trackedBytes;
+        private final long estimatorNanos;
+
+        @JsonCreator
+        public ShardsHeader(
+                @JsonProperty("samplingRate") double samplingRate,
+                @JsonProperty("hashSeed") long hashSeed,
+                @JsonProperty("binBytes") long binBytes,
+                @JsonProperty("maxDistanceBytes") long maxDistanceBytes,
+                @JsonProperty("totalRefs") long totalRefs,
+                @JsonProperty("sampledRefs") long sampledRefs,
+                @JsonProperty("evictedByCap") long evictedByCap,
+                @JsonProperty("trackedEntries") long trackedEntries,
+                @JsonProperty("trackedBytes") long trackedBytes,
+                @JsonProperty("estimatorNanos") long estimatorNanos) {
+            if (binBytes <= 0L) {
+                throw new IllegalArgumentException("binBytes must be > 0");
+            }
+            this.samplingRate = samplingRate;
+            this.hashSeed = hashSeed;
+            this.binBytes = binBytes;
+            this.maxDistanceBytes = maxDistanceBytes;
+            this.totalRefs = totalRefs;
+            this.sampledRefs = sampledRefs;
+            this.evictedByCap = evictedByCap;
+            this.trackedEntries = trackedEntries;
+            this.trackedBytes = trackedBytes;
+            this.estimatorNanos = estimatorNanos;
+        }
+
+        static ShardsHeader fromArray(long[] raw) {
+            return new ShardsHeader(
+                    Double.longBitsToDouble(raw[0]),
+                    raw[1],
+                    raw[2],
+                    raw[3],
+                    raw[4],
+                    raw[5],
+                    raw[6],
+                    raw[7],
+                    raw[8],
+                    raw[9]);
+        }
+
+        /** Sums the counters of two headers with the same estimator configuration. */
+        ShardsHeader add(ShardsHeader other) {
+            if (samplingRate != other.samplingRate
+                    || hashSeed != other.hashSeed
+                    || binBytes != other.binBytes
+                    || maxDistanceBytes != other.maxDistanceBytes) {
+                throw new IllegalArgumentException(
+                        "Cannot merge SHARDS histograms with different estimator settings");
+            }
+            return new ShardsHeader(
+                    samplingRate,
+                    hashSeed,
+                    binBytes,
+                    maxDistanceBytes,
+                    totalRefs + other.totalRefs,
+                    sampledRefs + other.sampledRefs,
+                    evictedByCap + other.evictedByCap,
+                    trackedEntries + other.trackedEntries,
+                    trackedBytes + other.trackedBytes,
+                    estimatorNanos + other.estimatorNanos);
+        }
+
+        public double getSamplingRate() {
+            return samplingRate;
+        }
+
+        public long getHashSeed() {
+            return hashSeed;
+        }
+
+        public long getBinBytes() {
+            return binBytes;
+        }
+
+        public long getMaxDistanceBytes() {
+            return maxDistanceBytes;
+        }
+
+        public long getTotalRefs() {
+            return totalRefs;
+        }
+
+        public long getSampledRefs() {
+            return sampledRefs;
+        }
+
+        public long getEvictedByCap() {
+            return evictedByCap;
+        }
+
+        public long getTrackedEntries() {
+            return trackedEntries;
+        }
+
+        public long getTrackedBytes() {
+            return trackedBytes;
+        }
+
+        public long getEstimatorNanos() {
+            return estimatorNanos;
+        }
     }
 }

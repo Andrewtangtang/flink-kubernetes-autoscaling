@@ -19,6 +19,7 @@
 package org.apache.flink.contrib.streaming.state;
 
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.configuration.ReadableConfig;
 
 import org.rocksdb.Cache;
 import org.rocksdb.LRUCache;
@@ -26,7 +27,11 @@ import org.rocksdb.WriteBufferManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
+
 import java.io.Serializable;
+
+import static org.apache.flink.util.Preconditions.checkArgument;
 
 /**
  * Utils to create {@link Cache} and {@link WriteBufferManager} which are used to control total
@@ -66,6 +71,7 @@ public class RocksDBMemoryControllerUtils {
                 quickMrcGhostCacheMultiplier,
                 quickMrcSamplingRate,
                 quickMrcHistogramBinSize,
+                null,
                 factory);
     }
 
@@ -80,6 +86,7 @@ public class RocksDBMemoryControllerUtils {
             int quickMrcGhostCacheMultiplier,
             double quickMrcSamplingRate,
             int quickMrcHistogramBinSize,
+            @Nullable ShardsMrcSettings shardsMrc,
             RocksDBMemoryFactory factory) {
 
         long calculatedCacheCapacity =
@@ -95,6 +102,11 @@ public class RocksDBMemoryControllerUtils {
                         quickMrcGhostCacheMultiplier,
                         quickMrcSamplingRate,
                         quickMrcHistogramBinSize);
+        // Enable SHARDS before the write buffer manager or any DB uses the cache.
+        if (shardsMrc != null) {
+            factory.enableShardsMrc(cache, shardsMrc);
+            LOG.info("Enabled the SHARDS MRC estimator of the shared block cache: {}", shardsMrc);
+        }
 
         long writeBufferManagerCapacity =
                 RocksDBMemoryControllerUtils.calculateWriteBufferManagerCapacity(
@@ -261,6 +273,15 @@ public class RocksDBMemoryControllerUtils {
 
         WriteBufferManager createWriteBufferManager(long writeBufferManagerCapacity, Cache cache);
 
+        default void enableShardsMrc(Cache cache, ShardsMrcSettings settings) {
+            ((LRUCache) cache)
+                    .enableShardsMrc(
+                            settings.getSamplingRate(),
+                            settings.getHashSeed(),
+                            settings.getBinBytes(),
+                            settings.getMaxDistanceBytes());
+        }
+
         RocksDBMemoryFactory DEFAULT =
                 new RocksDBMemoryFactory() {
                     @Override
@@ -291,5 +312,60 @@ public class RocksDBMemoryControllerUtils {
                                 writeBufferManagerCapacity, cache);
                     }
                 };
+    }
+
+    /** Settings of the cache-owned SHARDS MRC estimator, see {@code LRUCache#enableShardsMrc}. */
+    public static final class ShardsMrcSettings implements Serializable {
+        private static final long serialVersionUID = 1L;
+
+        private final double samplingRate;
+        private final long hashSeed;
+        private final long binBytes;
+        private final long maxDistanceBytes;
+
+        public ShardsMrcSettings(
+                double samplingRate, long hashSeed, long binBytes, long maxDistanceBytes) {
+            checkArgument(
+                    samplingRate > 0.0 && samplingRate <= 1.0,
+                    "SHARDS sampling rate %s must be in (0, 1]",
+                    samplingRate);
+            checkArgument(binBytes > 0, "SHARDS bin size must be > 0");
+            checkArgument(maxDistanceBytes >= binBytes, "SHARDS max distance must be >= bin size");
+            this.samplingRate = samplingRate;
+            this.hashSeed = hashSeed;
+            this.binBytes = binBytes;
+            this.maxDistanceBytes = maxDistanceBytes;
+        }
+
+        static ShardsMrcSettings fromConfig(ReadableConfig config) {
+            return new ShardsMrcSettings(
+                    config.get(RocksDBOptions.A4S_SHARDS_SAMPLING_RATE),
+                    config.get(RocksDBOptions.A4S_SHARDS_HASH_SEED),
+                    config.get(RocksDBOptions.A4S_SHARDS_BIN_SIZE).getBytes(),
+                    config.get(RocksDBOptions.A4S_SHARDS_MAX_DISTANCE).getBytes());
+        }
+
+        public double getSamplingRate() {
+            return samplingRate;
+        }
+
+        public long getHashSeed() {
+            return hashSeed;
+        }
+
+        public long getBinBytes() {
+            return binBytes;
+        }
+
+        public long getMaxDistanceBytes() {
+            return maxDistanceBytes;
+        }
+
+        @Override
+        public String toString() {
+            return String.format(
+                    "ShardsMrcSettings{samplingRate=%s, hashSeed=%d, binBytes=%d, maxDistanceBytes=%d}",
+                    samplingRate, hashSeed, binBytes, maxDistanceBytes);
+        }
     }
 }

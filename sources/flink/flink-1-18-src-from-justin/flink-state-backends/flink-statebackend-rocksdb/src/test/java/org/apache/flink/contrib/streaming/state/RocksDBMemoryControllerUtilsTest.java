@@ -18,11 +18,15 @@
 
 package org.apache.flink.contrib.streaming.state;
 
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.contrib.streaming.state.RocksDBMemoryControllerUtils.ShardsMrcSettings;
+
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.Cache;
+import org.rocksdb.LRUCache;
 import org.rocksdb.NativeLibraryLoader;
 import org.rocksdb.WriteBufferManager;
 
@@ -30,7 +34,9 @@ import java.io.IOException;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /** Tests to guard {@link RocksDBMemoryControllerUtils}. */
@@ -62,6 +68,7 @@ public class RocksDBMemoryControllerUtilsTest {
                         1,
                         0.01,
                         1,
+                        null,
                         factory);
         long expectedCacheCapacity =
                 RocksDBMemoryControllerUtils.calculateActualCacheCapacity(
@@ -73,6 +80,74 @@ public class RocksDBMemoryControllerUtilsTest {
         assertThat(factory.actualCacheCapacity, is(expectedCacheCapacity));
         assertThat(factory.actualWbmCapacity, is(expectedWbmCapacity));
         assertThat(rocksDBSharedResources.getWriteBufferManagerCapacity(), is(expectedWbmCapacity));
+    }
+
+    @Test
+    public void testShardsEstimatorIsDefaultAndDisablesQuickMrc() {
+        RocksDBMemoryConfiguration config =
+                RocksDBMemoryConfiguration.fromConfiguration(new Configuration());
+
+        assertEquals(RocksDBOptions.A4SMrcEstimator.SHARDS, config.getMrcEstimator());
+        assertFalse(config.isQuickMrcEnabled());
+        ShardsMrcSettings settings = config.getShardsMrcSettings();
+        assertEquals(0.01, settings.getSamplingRate(), 0.0);
+        assertEquals(0L, settings.getHashSeed());
+        assertEquals(1L << 20, settings.getBinBytes());
+        assertEquals(4L << 30, settings.getMaxDistanceBytes());
+
+        Configuration small = new Configuration();
+        small.setString(RocksDBOptions.A4S_SHARDS_MAX_DISTANCE.key(), "4mb");
+        small.setString(RocksDBOptions.A4S_SHARDS_HASH_SEED.key(), "7");
+        TestingRocksDBMemoryFactory factory = new TestingRocksDBMemoryFactory();
+        RocksDBSharedResources resources =
+                allocate(RocksDBMemoryConfiguration.fromConfiguration(small), factory);
+
+        assertFalse(factory.actualQuickMrcEnabled);
+        assertEquals(1, factory.shardsEnableCalls);
+        // Native check: the cache now carries the SHARDS header and 4 + 1 bins.
+        long[] histogram = ((LRUCache) resources.getCache()).getShardsMrcHistogram();
+        assertEquals(LRUCache.SHARDS_MRC_HEADER_LENGTH + 5, histogram.length);
+        assertEquals(0.01, Double.longBitsToDouble(histogram[0]), 0.0);
+        assertEquals(7L, histogram[1]);
+        assertEquals(1L << 20, histogram[2]);
+        assertEquals(4L << 20, histogram[3]);
+        resources.close();
+    }
+
+    @Test
+    public void testQuickMrcEstimatorKeepsQuickMrcAndSkipsShards() {
+        Configuration quickMrc = new Configuration();
+        quickMrc.setString(RocksDBOptions.A4S_MRC_ESTIMATOR.key(), "quickmrc");
+        RocksDBMemoryConfiguration config = RocksDBMemoryConfiguration.fromConfiguration(quickMrc);
+
+        assertTrue(config.isQuickMrcEnabled());
+        assertNull(config.getShardsMrcSettings());
+
+        TestingRocksDBMemoryFactory factory = new TestingRocksDBMemoryFactory();
+        RocksDBSharedResources resources = allocate(config, factory);
+
+        assertTrue(factory.actualQuickMrcEnabled);
+        assertEquals(0, factory.shardsEnableCalls);
+        assertEquals(0, ((LRUCache) resources.getCache()).getShardsMrcHistogram().length);
+        resources.close();
+    }
+
+    /** Mirrors {@link RocksDBSharedResourcesFactory}. */
+    private static RocksDBSharedResources allocate(
+            RocksDBMemoryConfiguration config, TestingRocksDBMemoryFactory factory) {
+        return RocksDBMemoryControllerUtils.allocateRocksDBSharedResources(
+                64L << 20,
+                config.getWriteBufferRatio(),
+                config.getHighPriorityPoolRatio(),
+                config.getLruCacheNumShardBits(),
+                config.isUsingPartitionedIndexFilters(),
+                config.isQuickMrcEnabled(),
+                config.getQuickMrcMaxBucketSize(),
+                config.getQuickMrcGhostCacheMultiplier(),
+                config.getQuickMrcSamplingRate(),
+                config.getQuickMrcHistogramBinSize(),
+                config.getShardsMrcSettings(),
+                factory);
     }
 
     @Test
@@ -123,6 +198,8 @@ public class RocksDBMemoryControllerUtilsTest {
             implements RocksDBMemoryControllerUtils.RocksDBMemoryFactory {
         private Long actualCacheCapacity = null;
         private Long actualWbmCapacity = null;
+        private boolean actualQuickMrcEnabled;
+        private int shardsEnableCalls;
 
         @Override
         public Cache createCache(
@@ -135,6 +212,7 @@ public class RocksDBMemoryControllerUtilsTest {
                 double quickMrcSamplingRate,
                 int quickMrcHistogramBinSize) {
             actualCacheCapacity = cacheCapacity;
+            actualQuickMrcEnabled = quickMrcEnabled;
             return RocksDBMemoryControllerUtils.RocksDBMemoryFactory.DEFAULT.createCache(
                     cacheCapacity,
                     highPriorityPoolRatio,
@@ -144,6 +222,13 @@ public class RocksDBMemoryControllerUtilsTest {
                     quickMrcGhostCacheMultiplier,
                     quickMrcSamplingRate,
                     quickMrcHistogramBinSize);
+        }
+
+        @Override
+        public void enableShardsMrc(Cache cache, ShardsMrcSettings settings) {
+            shardsEnableCalls++;
+            RocksDBMemoryControllerUtils.RocksDBMemoryFactory.super.enableShardsMrc(
+                    cache, settings);
         }
 
         @Override

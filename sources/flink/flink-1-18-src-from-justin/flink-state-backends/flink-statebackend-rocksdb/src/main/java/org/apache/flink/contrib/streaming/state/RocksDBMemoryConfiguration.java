@@ -21,6 +21,8 @@ package org.apache.flink.contrib.streaming.state;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.MemorySize;
 import org.apache.flink.configuration.ReadableConfig;
+import org.apache.flink.contrib.streaming.state.RocksDBMemoryControllerUtils.ShardsMrcSettings;
+import org.apache.flink.contrib.streaming.state.RocksDBOptions.A4SMrcEstimator;
 import org.apache.flink.util.Preconditions;
 
 import javax.annotation.Nullable;
@@ -72,6 +74,12 @@ public final class RocksDBMemoryConfiguration implements Serializable {
 
     /** QuickMRC histogram bin size. Null if not set. */
     @Nullable private Integer quickMrcHistogramBinSize;
+
+    /** A4S MRC estimator of the shared cache. Null if not set. */
+    @Nullable private A4SMrcEstimator mrcEstimator;
+
+    /** SHARDS estimator settings. Null if not set. */
+    @Nullable private ShardsMrcSettings shardsMrcSettings;
 
     // ------------------------------------------------------------------------
 
@@ -223,10 +231,29 @@ public final class RocksDBMemoryConfiguration implements Serializable {
                 : RocksDBOptions.USE_PARTITIONED_INDEX_FILTERS.defaultValue();
     }
 
+    /** QuickMRC runs only if it is the selected estimator; otherwise its cache hook is off. */
     public boolean isQuickMrcEnabled() {
-        return quickMrcEnabled != null
-                ? quickMrcEnabled
-                : RocksDBOptions.A4S_QUICK_MRC_ENABLED.defaultValue();
+        return getMrcEstimator() == A4SMrcEstimator.QUICKMRC
+                && (quickMrcEnabled != null
+                        ? quickMrcEnabled
+                        : RocksDBOptions.A4S_QUICK_MRC_ENABLED.defaultValue());
+    }
+
+    public A4SMrcEstimator getMrcEstimator() {
+        return mrcEstimator != null
+                ? mrcEstimator
+                : RocksDBOptions.A4S_MRC_ESTIMATOR.defaultValue();
+    }
+
+    /** Gets the SHARDS settings, or null if SHARDS is not the selected estimator. */
+    @Nullable
+    public ShardsMrcSettings getShardsMrcSettings() {
+        if (getMrcEstimator() != A4SMrcEstimator.SHARDS) {
+            return null;
+        }
+        return shardsMrcSettings != null
+                ? shardsMrcSettings
+                : ShardsMrcSettings.fromConfig(new Configuration());
     }
 
     public int getQuickMrcMaxBucketSize() {
@@ -340,6 +367,16 @@ public final class RocksDBMemoryConfiguration implements Serializable {
                 other.quickMrcHistogramBinSize != null
                         ? other.quickMrcHistogramBinSize
                         : config.get(RocksDBOptions.A4S_QUICK_MRC_HISTOGRAM_BIN_SIZE);
+
+        newConfig.mrcEstimator =
+                other.mrcEstimator != null
+                        ? other.mrcEstimator
+                        : config.get(RocksDBOptions.A4S_MRC_ESTIMATOR);
+
+        newConfig.shardsMrcSettings =
+                other.shardsMrcSettings != null
+                        ? other.shardsMrcSettings
+                        : ShardsMrcSettings.fromConfig(config);
 
         return newConfig;
     }

@@ -23,6 +23,7 @@ import org.apache.flink.a4s.core.StackDistanceHistogram;
 import org.apache.flink.a4s.logging.A4SMetricsFlowStep;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.time.Time;
+import org.apache.flink.runtime.executiongraph.AccessExecutionGraph;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.rest.handler.AbstractRestHandler;
 import org.apache.flink.runtime.rest.handler.HandlerRequest;
@@ -87,36 +88,69 @@ public class A4SAggregatingVertexMetricsHandler
         JobVertexID vertexID = request.getPathParameter(JobVertexIdPathParameter.class);
 
         return CompletableFuture.supplyAsync(
-                () -> {
-                    try {
-                        return processRequest(jobId, vertexID);
-                    } catch (Exception e) {
-                        log.warn(
-                                "A4S [{}]: jobId={} vertexId={} message={}",
-                                A4SMetricsFlowStep.HANDLER_FAILED.name(),
-                                jobId,
-                                vertexID,
-                                e.getMessage(),
-                                e);
-                        throw new CompletionException(
-                                new RestHandlerException(
-                                        "Could not retrieve A4S metrics.",
-                                        HttpResponseStatus.INTERNAL_SERVER_ERROR));
-                    }
-                },
-                this.executor);
+                        () -> {
+                            try {
+                                return collectSubtaskHistograms(jobId, vertexID);
+                            } catch (Exception e) {
+                                throw handlerFailure(jobId, vertexID, e);
+                            }
+                        },
+                        this.executor)
+                .thenCompose(
+                        histograms -> {
+                            if (histograms.isEmpty() || histograms.get(0).getShards() == null) {
+                                return CompletableFuture.completedFuture(
+                                        new A4SAggregatedMetricsResponseBody(
+                                                buildScaledMrcPoints(histograms)));
+                            }
+                            // SHARDS: scale the memory axis by the vertex parallelism, not by
+                            // the number of subtasks that have reported a histogram.
+                            return gateway.requestJob(jobId, timeout)
+                                    .thenApply(
+                                            graph ->
+                                                    buildShardsResponse(
+                                                            jobId, vertexID, histograms, graph));
+                        });
     }
 
-    private A4SAggregatedMetricsResponseBody processRequest(JobID jobId, JobVertexID vertexID)
-            throws Exception {
+    private A4SAggregatedMetricsResponseBody buildShardsResponse(
+            JobID jobId,
+            JobVertexID vertexID,
+            List<StackDistanceHistogram> histograms,
+            AccessExecutionGraph graph) {
+        try {
+            int parallelism = graph.getJobVertex(vertexID).getParallelism();
+            return new A4SAggregatedMetricsResponseBody(
+                    MissRateCurve.fromStackDistanceHistogram(
+                            StackDistanceHistogram.mergeShards(histograms, parallelism)));
+        } catch (Exception e) {
+            throw handlerFailure(jobId, vertexID, e);
+        }
+    }
+
+    private CompletionException handlerFailure(JobID jobId, JobVertexID vertexID, Exception e) {
+        log.warn(
+                "A4S [{}]: jobId={} vertexId={} message={}",
+                A4SMetricsFlowStep.HANDLER_FAILED.name(),
+                jobId,
+                vertexID,
+                e.getMessage(),
+                e);
+        return new CompletionException(
+                new RestHandlerException(
+                        "Could not retrieve A4S metrics.",
+                        HttpResponseStatus.INTERNAL_SERVER_ERROR));
+    }
+
+    private List<StackDistanceHistogram> collectSubtaskHistograms(
+            JobID jobId, JobVertexID vertexID) {
         this.fetcher.update();
         MetricStore store = this.fetcher.getMetricStore();
 
         MetricStore.TaskMetricStore taskMetricStore =
                 store.getTaskMetricStore(jobId.toString(), vertexID.toString());
         if (taskMetricStore == null) {
-            MissRateCurve emptyMrc = buildScaledMrcPoints(Collections.emptyList());
-            return new A4SAggregatedMetricsResponseBody(emptyMrc);
+            return Collections.emptyList();
         }
 
         List<StackDistanceHistogram> subtaskHistograms = new ArrayList<>();
@@ -132,8 +166,7 @@ public class A4SAggregatingVertexMetricsHandler
             subtaskHistograms.add(histogram);
         }
 
-        MissRateCurve scaledMrc = buildScaledMrcPoints(subtaskHistograms);
-        return new A4SAggregatedMetricsResponseBody(scaledMrc);
+        return subtaskHistograms;
     }
 
     @Nullable

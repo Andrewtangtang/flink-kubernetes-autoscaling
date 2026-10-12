@@ -213,4 +213,53 @@ public class RocksDBOptions {
                     .intType()
                     .defaultValue(1)
                     .withDescription("QuickMRC histogram bin size.");
+
+    /** Source of the A4S miss-rate curve of the shared block cache. */
+    public enum A4SMrcEstimator {
+        /** QuickMRC inside the LRU cache; histogram is read and reset on every metric update. */
+        QUICKMRC,
+        /** Cache-owned SHARDS estimator over user data-block accesses; never reset. */
+        SHARDS
+    }
+
+    public static final ConfigOption<A4SMrcEstimator> A4S_MRC_ESTIMATOR =
+            ConfigOptions.key("state.backend.rocksdb.a4s.mrc-estimator")
+                    .enumType(A4SMrcEstimator.class)
+                    .defaultValue(A4SMrcEstimator.SHARDS)
+                    .withDescription(
+                            "MRC estimator of the shared RocksDB block cache: 'quickmrc' or "
+                                    + "'shards'. With 'shards', QuickMRC is disabled in the cache "
+                                    + "regardless of 'state.backend.rocksdb.a4s.quick-mrc.enabled'.");
+
+    public static final ConfigOption<Double> A4S_SHARDS_SAMPLING_RATE =
+            ConfigOptions.key("state.backend.rocksdb.a4s.shards.sampling-rate")
+                    .doubleType()
+                    .defaultValue(0.01)
+                    .withDescription("SHARDS spatial sampling rate R in (0, 1].");
+
+    public static final ConfigOption<Long> A4S_SHARDS_HASH_SEED =
+            ConfigOptions.key("state.backend.rocksdb.a4s.shards.hash-seed")
+                    .longType()
+                    .defaultValue(0L)
+                    .withDescription(
+                            "Seed of the SHARDS sampling hash. Pin and record it per experiment.");
+
+    public static final ConfigOption<MemorySize> A4S_SHARDS_BIN_SIZE =
+            ConfigOptions.key("state.backend.rocksdb.a4s.shards.bin-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.parse("1mb"))
+                    .withDescription(
+                            "Width of a SHARDS histogram bin (per-task cache bytes). The default "
+                                    + "1 MiB is under 1% of a per-slot cache of a few hundred MiB.");
+
+    public static final ConfigOption<MemorySize> A4S_SHARDS_MAX_DISTANCE =
+            ConfigOptions.key("state.backend.rocksdb.a4s.shards.max-distance")
+                    .memoryType()
+                    .defaultValue(MemorySize.parse("4gb"))
+                    .withDescription(
+                            "Largest tracked SHARDS reuse distance (D_cap); sampled blocks beyond "
+                                    + "it are dropped and their re-accesses count as misses. The "
+                                    + "default 4 GiB is twice the largest per-slot cache (~2 GiB) "
+                                    + "A4S is expected to assign; the histogram has "
+                                    + "max-distance / bin-size finite bins.");
 }
