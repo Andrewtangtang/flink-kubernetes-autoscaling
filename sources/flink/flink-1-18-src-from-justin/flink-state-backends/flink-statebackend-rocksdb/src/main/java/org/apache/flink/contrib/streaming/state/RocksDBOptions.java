@@ -159,6 +159,18 @@ public class RocksDBOptions {
                                     USE_MANAGED_MEMORY.key(), FIX_PER_SLOT_MEMORY_SIZE.key()));
 
     @Documentation.Section(Documentation.Sections.STATE_BACKEND_ROCKSDB)
+    public static final ConfigOption<Integer> LRU_CACHE_NUM_SHARD_BITS =
+            ConfigOptions.key("state.backend.rocksdb.memory.lru-cache-num-shard-bits")
+                    .intType()
+                    .defaultValue(-1)
+                    .withDescription(
+                            String.format(
+                                    "The number of shard bits for RocksDB's shared LRU block cache. "
+                                            + "A value of -1 lets RocksDB choose automatically. "
+                                            + "This option only has an effect when '%s' or '%s' are configured.",
+                                    USE_MANAGED_MEMORY.key(), FIX_PER_SLOT_MEMORY_SIZE.key()));
+
+    @Documentation.Section(Documentation.Sections.STATE_BACKEND_ROCKSDB)
     public static final ConfigOption<Boolean> USE_PARTITIONED_INDEX_FILTERS =
             ConfigOptions.key("state.backend.rocksdb.memory.partitioned-index-filters")
                     .booleanType()
@@ -171,4 +183,34 @@ public class RocksDBOptions {
                                             + "the partitions that are required to perform the index/filter query. "
                                             + "This option only has an effect when '%s' or '%s' are configured.",
                                     USE_MANAGED_MEMORY.key(), FIX_PER_SLOT_MEMORY_SIZE.key()));
+
+    public static final ConfigOption<Boolean> A4S_QUICK_MRC_ENABLED =
+            ConfigOptions.key("state.backend.rocksdb.a4s.quick-mrc.enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription("Enable QuickMRC inside RocksDB block cache.");
+
+    public static final ConfigOption<Integer> A4S_QUICK_MRC_MAX_BUCKET_SIZE =
+            ConfigOptions.key("state.backend.rocksdb.a4s.quick-mrc.max-bucket-size")
+                    .intType()
+                    .defaultValue(60)
+                    .withDescription("Maximum QuickMRC bucket size.");
+
+    public static final ConfigOption<Integer> A4S_QUICK_MRC_GHOST_CACHE_MULTIPLIER =
+            ConfigOptions.key("state.backend.rocksdb.a4s.quick-mrc.ghost-cache-multiplier")
+                    .intType()
+                    .defaultValue(1)
+                    .withDescription("QuickMRC ghost cache multiplier.");
+
+    public static final ConfigOption<Double> A4S_QUICK_MRC_SAMPLING_RATE =
+            ConfigOptions.key("state.backend.rocksdb.a4s.quick-mrc.sampling-rate")
+                    .doubleType()
+                    .defaultValue(0.01)
+                    .withDescription("QuickMRC sampling rate.");
+
+    public static final ConfigOption<Integer> A4S_QUICK_MRC_HISTOGRAM_BIN_SIZE =
+            ConfigOptions.key("state.backend.rocksdb.a4s.quick-mrc.histogram-bin-size")
+                    .intType()
+                    .defaultValue(1)
+                    .withDescription("QuickMRC histogram bin size.");
 }

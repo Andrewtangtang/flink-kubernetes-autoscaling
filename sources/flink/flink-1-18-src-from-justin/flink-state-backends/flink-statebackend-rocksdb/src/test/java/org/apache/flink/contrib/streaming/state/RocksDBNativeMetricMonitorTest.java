@@ -74,7 +74,8 @@ class RocksDBNativeMetricMonitorTest {
                         options,
                         group,
                         localRocksDBExtension.getRocksDB(),
-                        localRocksDBExtension.getDbOptions().statistics());
+                        localRocksDBExtension.getDbOptions().statistics(),
+                        null);
 
         ColumnFamilyHandle handle = localRocksDBExtension.createNewColumnFamily(COLUMN_FAMILY_NAME);
         monitor.registerColumnFamily(COLUMN_FAMILY_NAME, handle);
@@ -143,7 +144,8 @@ class RocksDBNativeMetricMonitorTest {
                         options,
                         group,
                         localRocksDBExtension.getRocksDB(),
-                        localRocksDBExtension.getDbOptions().statistics());
+                        localRocksDBExtension.getDbOptions().statistics(),
+                        null);
 
         ColumnFamilyHandle handle = rocksDBExtension.createNewColumnFamily(COLUMN_FAMILY_NAME);
         monitor.registerColumnFamily(COLUMN_FAMILY_NAME, handle);
@@ -178,7 +180,8 @@ class RocksDBNativeMetricMonitorTest {
                         options,
                         group,
                         rocksDBExtension.getRocksDB(),
-                        rocksDBExtension.getDbOptions().statistics());
+                        rocksDBExtension.getDbOptions().statistics(),
+                        null);
 
         ColumnFamilyHandle handle = rocksDBExtension.createNewColumnFamily(COLUMN_FAMILY_NAME);
         monitor.registerColumnFamily(COLUMN_FAMILY_NAME, handle);

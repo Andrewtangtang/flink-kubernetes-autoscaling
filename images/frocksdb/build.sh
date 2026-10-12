@@ -17,3 +17,4 @@ docker run --rm \
     ${IMAGE_NAME}
 
 cp ${FROCKSDB_SOURCE}/java/target/rocksdbjni-*-linux*.jar "${FLINK_RUNTIME_A4S_SOURCE}/"
+cp ${FROCKSDB_SOURCE}/java/target/rocksdbjni-*-linux*.jar "${FLINK_RUNTIME_SOURCE}/"

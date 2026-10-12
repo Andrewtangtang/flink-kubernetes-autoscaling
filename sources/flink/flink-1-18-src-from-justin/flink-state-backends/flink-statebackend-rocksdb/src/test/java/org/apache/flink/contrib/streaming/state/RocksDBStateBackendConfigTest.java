@@ -800,6 +800,9 @@ public class RocksDBStateBackendConfigTest {
                 RocksDBOptions.WRITE_BUFFER_RATIO.defaultValue(),
                 memSettings.getWriteBufferRatio(),
                 0.0);
+        assertEquals(
+                RocksDBOptions.LRU_CACHE_NUM_SHARD_BITS.defaultValue().intValue(),
+                memSettings.getLruCacheNumShardBits());
 
         RocksDBMemoryConfiguration configured =
                 RocksDBMemoryConfiguration.fromOtherAndConfiguration(
@@ -814,18 +817,23 @@ public class RocksDBStateBackendConfigTest {
                 RocksDBOptions.WRITE_BUFFER_RATIO.defaultValue(),
                 configured.getWriteBufferRatio(),
                 0.0);
+        assertEquals(
+                RocksDBOptions.LRU_CACHE_NUM_SHARD_BITS.defaultValue().intValue(),
+                configured.getLruCacheNumShardBits());
     }
 
     @Test
     public void testConfigureManagedMemory() {
         final Configuration config = new Configuration();
         config.setBoolean(RocksDBOptions.USE_MANAGED_MEMORY, true);
+        config.setInteger(RocksDBOptions.LRU_CACHE_NUM_SHARD_BITS, 4);
 
         final RocksDBMemoryConfiguration memSettings =
                 RocksDBMemoryConfiguration.fromOtherAndConfiguration(
                         new RocksDBMemoryConfiguration(), config);
 
         assertTrue(memSettings.isUsingManagedMemory());
+        assertEquals(4, memSettings.getLruCacheNumShardBits());
     }
 
     @Test

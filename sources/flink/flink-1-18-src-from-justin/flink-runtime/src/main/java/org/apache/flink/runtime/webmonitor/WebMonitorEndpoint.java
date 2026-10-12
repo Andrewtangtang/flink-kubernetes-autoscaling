@@ -80,6 +80,7 @@ import org.apache.flink.runtime.rest.handler.job.checkpoints.TaskCheckpointStati
 import org.apache.flink.runtime.rest.handler.job.coordination.ClientCoordinationHandler;
 import org.apache.flink.runtime.rest.handler.job.justin.JustinResourceRequirementsHandler;
 import org.apache.flink.runtime.rest.handler.job.justin.JustinResourceRequirementsUpdateHandler;
+import org.apache.flink.runtime.rest.handler.job.metrics.A4SAggregatingVertexMetricsHandler;
 import org.apache.flink.runtime.rest.handler.job.metrics.AggregatingJobsMetricsHandler;
 import org.apache.flink.runtime.rest.handler.job.metrics.AggregatingSubtasksMetricsHandler;
 import org.apache.flink.runtime.rest.handler.job.metrics.AggregatingTaskManagersMetricsHandler;
@@ -528,6 +529,10 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                 new AggregatingSubtasksMetricsHandler(
                         leaderRetriever, timeout, responseHeaders, executor, metricFetcher);
 
+        final A4SAggregatingVertexMetricsHandler a4sAggregatingVertexMetricsHandler =
+                new A4SAggregatingVertexMetricsHandler(
+                        leaderRetriever, timeout, responseHeaders, executor, metricFetcher);
+
         final JobVertexTaskManagersHandler jobVertexTaskManagersHandler =
                 new JobVertexTaskManagersHandler(
                         leaderRetriever,
@@ -796,6 +801,10 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                 Tuple2.of(
                         aggregatingSubtasksMetricsHandler.getMessageHeaders(),
                         aggregatingSubtasksMetricsHandler));
+        handlers.add(
+                Tuple2.of(
+                        a4sAggregatingVertexMetricsHandler.getMessageHeaders(),
+                        a4sAggregatingVertexMetricsHandler));
         handlers.add(
                 Tuple2.of(
                         jobExecutionResultHandler.getMessageHeaders(), jobExecutionResultHandler));

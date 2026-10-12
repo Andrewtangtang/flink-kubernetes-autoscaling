@@ -160,7 +160,13 @@ enum RocksDBSharedResourcesFactory {
                         size,
                         config.getWriteBufferRatio(),
                         config.getHighPriorityPoolRatio(),
+                        config.getLruCacheNumShardBits(),
                         config.isUsingPartitionedIndexFilters(),
+                        config.isQuickMrcEnabled(),
+                        config.getQuickMrcMaxBucketSize(),
+                        config.getQuickMrcGhostCacheMultiplier(),
+                        config.getQuickMrcSamplingRate(),
+                        config.getQuickMrcHistogramBinSize(),
                         rocksDBMemoryFactory);
     }
 }

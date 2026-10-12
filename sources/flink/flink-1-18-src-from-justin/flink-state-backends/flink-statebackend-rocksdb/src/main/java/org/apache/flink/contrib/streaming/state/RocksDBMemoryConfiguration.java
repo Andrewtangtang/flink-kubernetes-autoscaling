@@ -52,8 +52,26 @@ public final class RocksDBMemoryConfiguration implements Serializable {
      */
     @Nullable private Double highPriorityPoolRatio;
 
+    /** The number of shard bits for the shared RocksDB LRU cache. Null if not set. */
+    @Nullable private Integer lruCacheNumShardBits;
+
     /** Flag whether to use partition index/filters. Null if not set. */
     @Nullable private Boolean usePartitionedIndexFilters;
+
+    /** Whether QuickMRC is enabled for shared RocksDB cache. Null if not set. */
+    @Nullable private Boolean quickMrcEnabled;
+
+    /** QuickMRC max bucket size. Null if not set. */
+    @Nullable private Integer quickMrcMaxBucketSize;
+
+    /** QuickMRC ghost cache multiplier. Null if not set. */
+    @Nullable private Integer quickMrcGhostCacheMultiplier;
+
+    /** QuickMRC sampling rate. Null if not set. */
+    @Nullable private Double quickMrcSamplingRate;
+
+    /** QuickMRC histogram bin size. Null if not set. */
+    @Nullable private Integer quickMrcHistogramBinSize;
 
     // ------------------------------------------------------------------------
 
@@ -116,6 +134,19 @@ public final class RocksDBMemoryConfiguration implements Serializable {
     }
 
     /**
+     * Sets the number of shard bits for RocksDB's shared LRU cache.
+     *
+     * <p>See {@link RocksDBOptions#LRU_CACHE_NUM_SHARD_BITS} for details.
+     */
+    public void setLruCacheNumShardBits(int lruCacheNumShardBits) {
+        Preconditions.checkArgument(
+                lruCacheNumShardBits >= -1,
+                "LRU cache num shard bits %s must be >= -1",
+                lruCacheNumShardBits);
+        this.lruCacheNumShardBits = lruCacheNumShardBits;
+    }
+
+    /**
      * Gets whether the state backend is configured to use the managed memory of a slot for RocksDB.
      * See {@link RocksDBOptions#USE_MANAGED_MEMORY} for details.
      */
@@ -171,6 +202,17 @@ public final class RocksDBMemoryConfiguration implements Serializable {
     }
 
     /**
+     * Gets the number of shard bits for RocksDB's shared LRU cache.
+     *
+     * <p>See {@link RocksDBOptions#LRU_CACHE_NUM_SHARD_BITS} for details.
+     */
+    public int getLruCacheNumShardBits() {
+        return lruCacheNumShardBits != null
+                ? lruCacheNumShardBits
+                : RocksDBOptions.LRU_CACHE_NUM_SHARD_BITS.defaultValue();
+    }
+
+    /**
      * Gets whether the state backend is configured to use partitioned index/filters for RocksDB.
      *
      * <p>See {@link RocksDBOptions#USE_PARTITIONED_INDEX_FILTERS} for details.
@@ -179,6 +221,36 @@ public final class RocksDBMemoryConfiguration implements Serializable {
         return usePartitionedIndexFilters != null
                 ? usePartitionedIndexFilters
                 : RocksDBOptions.USE_PARTITIONED_INDEX_FILTERS.defaultValue();
+    }
+
+    public boolean isQuickMrcEnabled() {
+        return quickMrcEnabled != null
+                ? quickMrcEnabled
+                : RocksDBOptions.A4S_QUICK_MRC_ENABLED.defaultValue();
+    }
+
+    public int getQuickMrcMaxBucketSize() {
+        return quickMrcMaxBucketSize != null
+                ? quickMrcMaxBucketSize
+                : RocksDBOptions.A4S_QUICK_MRC_MAX_BUCKET_SIZE.defaultValue();
+    }
+
+    public int getQuickMrcGhostCacheMultiplier() {
+        return quickMrcGhostCacheMultiplier != null
+                ? quickMrcGhostCacheMultiplier
+                : RocksDBOptions.A4S_QUICK_MRC_GHOST_CACHE_MULTIPLIER.defaultValue();
+    }
+
+    public double getQuickMrcSamplingRate() {
+        return quickMrcSamplingRate != null
+                ? quickMrcSamplingRate
+                : RocksDBOptions.A4S_QUICK_MRC_SAMPLING_RATE.defaultValue();
+    }
+
+    public int getQuickMrcHistogramBinSize() {
+        return quickMrcHistogramBinSize != null
+                ? quickMrcHistogramBinSize
+                : RocksDBOptions.A4S_QUICK_MRC_HISTOGRAM_BIN_SIZE.defaultValue();
     }
 
     // ------------------------------------------------------------------------
@@ -234,10 +306,40 @@ public final class RocksDBMemoryConfiguration implements Serializable {
                         ? other.highPriorityPoolRatio
                         : config.get(RocksDBOptions.HIGH_PRIORITY_POOL_RATIO);
 
+        newConfig.lruCacheNumShardBits =
+                other.lruCacheNumShardBits != null
+                        ? other.lruCacheNumShardBits
+                        : config.get(RocksDBOptions.LRU_CACHE_NUM_SHARD_BITS);
+
         newConfig.usePartitionedIndexFilters =
                 other.usePartitionedIndexFilters != null
                         ? other.usePartitionedIndexFilters
                         : config.get(RocksDBOptions.USE_PARTITIONED_INDEX_FILTERS);
+
+        newConfig.quickMrcEnabled =
+                other.quickMrcEnabled != null
+                        ? other.quickMrcEnabled
+                        : config.get(RocksDBOptions.A4S_QUICK_MRC_ENABLED);
+
+        newConfig.quickMrcMaxBucketSize =
+                other.quickMrcMaxBucketSize != null
+                        ? other.quickMrcMaxBucketSize
+                        : config.get(RocksDBOptions.A4S_QUICK_MRC_MAX_BUCKET_SIZE);
+
+        newConfig.quickMrcGhostCacheMultiplier =
+                other.quickMrcGhostCacheMultiplier != null
+                        ? other.quickMrcGhostCacheMultiplier
+                        : config.get(RocksDBOptions.A4S_QUICK_MRC_GHOST_CACHE_MULTIPLIER);
+
+        newConfig.quickMrcSamplingRate =
+                other.quickMrcSamplingRate != null
+                        ? other.quickMrcSamplingRate
+                        : config.get(RocksDBOptions.A4S_QUICK_MRC_SAMPLING_RATE);
+
+        newConfig.quickMrcHistogramBinSize =
+                other.quickMrcHistogramBinSize != null
+                        ? other.quickMrcHistogramBinSize
+                        : config.get(RocksDBOptions.A4S_QUICK_MRC_HISTOGRAM_BIN_SIZE);
 
         return newConfig;
     }

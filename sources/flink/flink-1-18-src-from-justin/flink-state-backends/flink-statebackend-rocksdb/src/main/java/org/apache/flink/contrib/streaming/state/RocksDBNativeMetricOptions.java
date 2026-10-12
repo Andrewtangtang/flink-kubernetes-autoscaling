@@ -22,6 +22,7 @@ import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
 import org.apache.flink.configuration.ReadableConfig;
+import org.apache.flink.configuration.TaskManagerOptions;
 
 import org.rocksdb.TickerType;
 
@@ -302,11 +303,25 @@ public class RocksDBNativeMetricOptions implements Serializable {
                     .withDescription(
                             "Monitor the duration of writer requiring to wait for compaction or flush to finish in RocksDB.");
 
+    // --------------------------------------------------------------------------------------------
+    //  RocksDB stack distance histogram metrics
+    // --------------------------------------------------------------------------------------------
+
+    public static final ConfigOption<Boolean> MONITOR_STACK_DISTANCE_HISTOGRAM =
+            ConfigOptions.key("state.backend.rocksdb.metrics.stack-distance-histogram")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Enable on-demand stack distance histogram metrics from RocksDB. "
+                                    + "These histograms use fixed-size buckets and are fetched from RocksDB "
+                                    + "when requested by the JobManager.");
+
     /** Creates a {@link RocksDBNativeMetricOptions} based on an external configuration. */
     public static RocksDBNativeMetricOptions fromConfig(ReadableConfig config) {
         RocksDBNativeMetricOptions options = new RocksDBNativeMetricOptions();
         configurePropertyMetrics(options, config);
         configureStatisticsMetrics(options, config);
+        configureStackDistanceHistogram(options, config);
         return options;
     }
 
@@ -428,6 +443,17 @@ public class RocksDBNativeMetricOptions implements Serializable {
         }
     }
 
+    private static void configureStackDistanceHistogram(
+            RocksDBNativeMetricOptions options, ReadableConfig config) {
+        if (config.get(MONITOR_STACK_DISTANCE_HISTOGRAM)) {
+            options.enableStackDistanceHistogram();
+            options.setStackDistanceHistogramBucketSizeScaling(
+                    config.get(RocksDBOptions.A4S_QUICK_MRC_HISTOGRAM_BIN_SIZE));
+            options.setStackDistanceHistogramCacheItemSizeBytes(
+                    config.get(TaskManagerOptions.A4S_CACHE_ITEM_SIZE_BYTES));
+        }
+    }
+
     private static final Map<ConfigOption<Boolean>, TickerType> tickerTypeMapping =
             new HashMap<ConfigOption<Boolean>, TickerType>() {
                 private static final long serialVersionUID = 1L;
@@ -447,6 +473,11 @@ public class RocksDBNativeMetricOptions implements Serializable {
     private final Set<String> properties;
     private final Set<TickerType> monitorTickerTypes;
     private boolean columnFamilyAsVariable = COLUMN_FAMILY_AS_VARIABLE.defaultValue();
+    private boolean monitorStackDistanceHistogram = MONITOR_STACK_DISTANCE_HISTOGRAM.defaultValue();
+    private int stackDistanceHistogramBucketSizeScaling =
+            RocksDBOptions.A4S_QUICK_MRC_HISTOGRAM_BIN_SIZE.defaultValue();
+    private long stackDistanceHistogramCacheItemSizeBytes =
+            TaskManagerOptions.A4S_CACHE_ITEM_SIZE_BYTES.defaultValue();
 
     public RocksDBNativeMetricOptions() {
         this.properties = new HashSet<>();
@@ -628,17 +659,52 @@ public class RocksDBNativeMetricOptions implements Serializable {
     }
 
     /**
-     * {{@link RocksDBNativeMetricMonitor}} is enabled if any property or ticker type is set.
+     * {{@link RocksDBNativeMetricMonitor}} is enabled if any property or ticker type is set, or
+     * stack distance histogram is enabled.
      *
      * @return true if {{RocksDBNativeMetricMonitor}} should be enabled, false otherwise.
      */
     public boolean isEnabled() {
-        return !properties.isEmpty() || isStatisticsEnabled();
+        return !properties.isEmpty() || isStatisticsEnabled() || isStackDistanceHistogramEnabled();
     }
 
     /** @return true if RocksDB statistics metrics are enabled, false otherwise. */
     public boolean isStatisticsEnabled() {
         return !monitorTickerTypes.isEmpty();
+    }
+
+    /** Enables the stack distance histogram metric. */
+    public void enableStackDistanceHistogram() {
+        this.monitorStackDistanceHistogram = true;
+    }
+
+    /** @return true if stack distance histogram metrics are enabled, false otherwise. */
+    public boolean isStackDistanceHistogramEnabled() {
+        return monitorStackDistanceHistogram;
+    }
+
+    public void setStackDistanceHistogramBucketSizeScaling(int bucketSizeScaling) {
+        if (bucketSizeScaling <= 0) {
+            throw new IllegalArgumentException(
+                    "Stack distance histogram bucket size scaling must be > 0");
+        }
+        this.stackDistanceHistogramBucketSizeScaling = bucketSizeScaling;
+    }
+
+    public int getStackDistanceHistogramBucketSizeScaling() {
+        return stackDistanceHistogramBucketSizeScaling;
+    }
+
+    public void setStackDistanceHistogramCacheItemSizeBytes(long cacheItemSizeBytes) {
+        if (cacheItemSizeBytes <= 0L) {
+            throw new IllegalArgumentException(
+                    "Stack distance histogram cache item size bytes must be > 0");
+        }
+        this.stackDistanceHistogramCacheItemSizeBytes = cacheItemSizeBytes;
+    }
+
+    public long getStackDistanceHistogramCacheItemSizeBytes() {
+        return stackDistanceHistogramCacheItemSizeBytes;
     }
 
     /**

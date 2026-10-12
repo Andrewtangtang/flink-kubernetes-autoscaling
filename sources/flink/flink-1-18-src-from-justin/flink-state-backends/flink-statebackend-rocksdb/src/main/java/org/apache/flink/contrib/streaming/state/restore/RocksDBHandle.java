@@ -29,6 +29,7 @@ import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
 import org.apache.flink.util.FileUtils;
 import org.apache.flink.util.IOUtils;
 
+import org.rocksdb.Cache;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
@@ -38,6 +39,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import java.io.File;
 import java.io.IOException;
@@ -87,6 +89,7 @@ class RocksDBHandle implements AutoCloseable {
     private ColumnFamilyHandle defaultColumnFamilyHandle;
     private RocksDBNativeMetricMonitor nativeMetricMonitor;
     private final Long writeBufferManagerCapacity;
+    @Nullable private final Cache blockCache;
 
     protected RocksDBHandle(
             Map<String, RocksDbKvStateInfo> kvStateInformation,
@@ -96,7 +99,8 @@ class RocksDBHandle implements AutoCloseable {
             RocksDBNativeMetricOptions nativeMetricOptions,
             MetricGroup metricGroup,
             @Nonnull RocksDbTtlCompactFiltersManager ttlCompactFiltersManager,
-            Long writeBufferManagerCapacity) {
+            Long writeBufferManagerCapacity,
+            @Nullable Cache blockCache) {
         this.kvStateInformation = kvStateInformation;
         this.dbPath = instanceRocksDBPath.getAbsolutePath();
         this.dbOptions = dbOptions;
@@ -107,6 +111,7 @@ class RocksDBHandle implements AutoCloseable {
         this.columnFamilyHandles = new ArrayList<>(1);
         this.columnFamilyDescriptors = Collections.emptyList();
         this.writeBufferManagerCapacity = writeBufferManagerCapacity;
+        this.blockCache = blockCache;
     }
 
     void openDB() throws IOException {
@@ -144,7 +149,11 @@ class RocksDBHandle implements AutoCloseable {
         nativeMetricMonitor =
                 nativeMetricOptions.isEnabled()
                         ? new RocksDBNativeMetricMonitor(
-                                nativeMetricOptions, metricGroup, db, dbOptions.statistics())
+                                nativeMetricOptions,
+                                metricGroup,
+                                db,
+                                dbOptions.statistics(),
+                                blockCache)
                         : null;
     }
 

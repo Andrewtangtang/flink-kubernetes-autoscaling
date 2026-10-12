@@ -45,6 +45,7 @@ import org.apache.flink.runtime.state.restore.SavepointRestoreResult;
 import org.apache.flink.runtime.state.restore.ThrowingIterator;
 import org.apache.flink.util.StateMigrationException;
 
+import org.rocksdb.Cache;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
@@ -52,6 +53,7 @@ import org.rocksdb.RocksDBException;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import java.io.File;
 import java.io.IOException;
@@ -94,7 +96,8 @@ public class RocksDBHeapTimersFullRestoreOperation<K> implements RocksDBRestoreO
             @Nonnull Collection<KeyedStateHandle> restoreStateHandles,
             @Nonnull RocksDbTtlCompactFiltersManager ttlCompactFiltersManager,
             @Nonnegative long writeBatchSize,
-            Long writeBufferManagerCapacity) {
+            Long writeBufferManagerCapacity,
+            @Nullable Cache blockCache) {
         this.writeBatchSize = writeBatchSize;
         this.rocksHandle =
                 new RocksDBHandle(
@@ -105,7 +108,8 @@ public class RocksDBHeapTimersFullRestoreOperation<K> implements RocksDBRestoreO
                         nativeMetricOptions,
                         metricGroup,
                         ttlCompactFiltersManager,
-                        writeBufferManagerCapacity);
+                        writeBufferManagerCapacity,
+                        blockCache);
         this.savepointRestoreOperation =
                 new FullSnapshotRestoreOperation<>(
                         keyGroupRange,

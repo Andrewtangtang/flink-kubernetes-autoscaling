@@ -181,6 +181,19 @@ public final class RocksDBResourceContainer implements AutoCloseable {
         return sharedResources.getResourceHandle().getWriteBufferManagerCapacity();
     }
 
+    /**
+     * Gets the shared block cache, or null if shared resources are not configured.
+     *
+     * @return the block {@link Cache}, or null.
+     */
+    @Nullable
+    public Cache getBlockCache() {
+        if (sharedResources == null) {
+            return null;
+        }
+        return sharedResources.getResourceHandle().getCache();
+    }
+
     /** Gets the RocksDB {@link ColumnFamilyOptions} to be used for all RocksDB instances. */
     public ColumnFamilyOptions getColumnOptions() {
         // initial options from common profile

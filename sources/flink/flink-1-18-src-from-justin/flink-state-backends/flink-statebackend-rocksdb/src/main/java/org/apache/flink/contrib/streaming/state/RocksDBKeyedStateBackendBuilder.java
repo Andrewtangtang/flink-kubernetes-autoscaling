@@ -313,7 +313,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                 nativeMetricMonitor =
                         nativeMetricOptions.isEnabled()
                                 ? new RocksDBNativeMetricMonitor(
-                                        nativeMetricOptions, metricGroup, db, null)
+                                        nativeMetricOptions, metricGroup, db, null, null)
                                 : null;
             } else {
                 prepareDirectories();
@@ -454,7 +454,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                     nativeMetricOptions,
                     metricGroup,
                     ttlCompactFiltersManager,
-                    optionsContainer.getWriteBufferManagerCapacity());
+                    optionsContainer.getWriteBufferManagerCapacity(),
+                    optionsContainer.getBlockCache());
         }
         KeyedStateHandle firstStateHandle = restoreStateHandles.iterator().next();
         if (firstStateHandle instanceof IncrementalKeyedStateHandle) {
@@ -477,7 +478,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                     ttlCompactFiltersManager,
                     writeBatchSize,
                     optionsContainer.getWriteBufferManagerCapacity(),
-                    overlapFractionThreshold);
+                    overlapFractionThreshold,
+                    optionsContainer.getBlockCache());
         } else if (priorityQueueStateType
                 == EmbeddedRocksDBStateBackend.PriorityQueueStateType.HEAP) {
             return new RocksDBHeapTimersFullRestoreOperation<>(
@@ -496,7 +498,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                     restoreStateHandles,
                     ttlCompactFiltersManager,
                     writeBatchSize,
-                    optionsContainer.getWriteBufferManagerCapacity());
+                    optionsContainer.getWriteBufferManagerCapacity(),
+                    optionsContainer.getBlockCache());
         } else {
             return new RocksDBFullRestoreOperation<>(
                     keyGroupRange,
@@ -511,7 +514,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
                     restoreStateHandles,
                     ttlCompactFiltersManager,
                     writeBatchSize,
-                    optionsContainer.getWriteBufferManagerCapacity());
+                    optionsContainer.getWriteBufferManagerCapacity(),
+                    optionsContainer.getBlockCache());
         }
     }
 

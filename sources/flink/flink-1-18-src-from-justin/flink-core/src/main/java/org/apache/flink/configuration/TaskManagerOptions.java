@@ -700,6 +700,12 @@ public class TaskManagerOptions {
                             "Time we wait for the timers in milliseconds to finish all pending timer threads"
                                     + " when the stream task is cancelled.");
 
+    public static final ConfigOption<Long> A4S_CACHE_ITEM_SIZE_BYTES =
+            ConfigOptions.key("a4s.cache-item-size-bytes")
+                    .longType()
+                    .defaultValue(4096L)
+                    .withDescription("Size of each cache item in bytes.");
+
     // ------------------------------------------------------------------------
 
     /** Not intended to be instantiated. */

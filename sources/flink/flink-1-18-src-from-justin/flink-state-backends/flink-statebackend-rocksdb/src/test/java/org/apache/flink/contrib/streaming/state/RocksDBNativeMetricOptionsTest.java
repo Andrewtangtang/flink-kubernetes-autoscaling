@@ -19,6 +19,7 @@
 package org.apache.flink.contrib.streaming.state;
 
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.TaskManagerOptions;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -45,5 +46,19 @@ public class RocksDBNativeMetricOptionsTest {
                             property.getConfigKey()),
                     options.getProperties().contains(property.getRocksDBProperty()));
         }
+    }
+
+    @Test
+    public void testStackDistanceHistogramScalingConfiguredFromQuickMrcBinSize() {
+        Configuration config = new Configuration();
+        config.setBoolean(RocksDBNativeMetricOptions.MONITOR_STACK_DISTANCE_HISTOGRAM.key(), true);
+        config.setInteger(RocksDBOptions.A4S_QUICK_MRC_HISTOGRAM_BIN_SIZE.key(), 7);
+        config.setLong(TaskManagerOptions.A4S_CACHE_ITEM_SIZE_BYTES.key(), 8192L);
+
+        RocksDBNativeMetricOptions options = RocksDBNativeMetricOptions.fromConfig(config);
+
+        Assert.assertTrue(options.isStackDistanceHistogramEnabled());
+        Assert.assertEquals(7, options.getStackDistanceHistogramBucketSizeScaling());
+        Assert.assertEquals(8192L, options.getStackDistanceHistogramCacheItemSizeBytes());
     }
 }
