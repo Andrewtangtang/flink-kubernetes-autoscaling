@@ -17,6 +17,7 @@
 
 package org.apache.flink.autoscaler.metrics;
 
+import org.apache.flink.a4s.core.MissRateCurve;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 
 import lombok.AllArgsConstructor;
@@ -32,4 +33,11 @@ import java.util.Map;
 public class CollectedMetrics {
     private Map<JobVertexID, Map<ScalingMetric, Double>> vertexMetrics;
     private Map<ScalingMetric, Double> globalMetrics;
+    private Map<JobVertexID, MissRateCurve> missRateCurves;
+
+    public CollectedMetrics(
+            Map<JobVertexID, Map<ScalingMetric, Double>> vertexMetrics,
+            Map<ScalingMetric, Double> globalMetrics) {
+        this(vertexMetrics, globalMetrics, null);
+    }
 }

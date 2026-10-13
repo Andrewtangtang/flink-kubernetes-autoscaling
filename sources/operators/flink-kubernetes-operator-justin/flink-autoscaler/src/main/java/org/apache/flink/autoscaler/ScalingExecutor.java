@@ -27,6 +27,8 @@ import org.apache.flink.autoscaler.metrics.ScalingMetric;
 import org.apache.flink.autoscaler.resources.NoopResourceCheck;
 import org.apache.flink.autoscaler.resources.ResourceCheck;
 import org.apache.flink.autoscaler.state.AutoScalerStateStore;
+import org.apache.flink.autoscaler.a4s.A4S;
+import org.apache.flink.autoscaler.a4s.A4S.Decision;
 import org.apache.flink.autoscaler.topology.JobTopology;
 import org.apache.flink.autoscaler.tuning.MemoryTuning;
 import org.apache.flink.autoscaler.utils.CalendarUtils;
@@ -48,6 +50,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
 
@@ -167,7 +170,31 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
                             evaluatedMetrics.getVertexMetrics(),
                             scalingSummaries,
                             currentPeriod);
-            policy(context, currentScalingConf, conf);
+
+            if (conf.get(A4S_ENABLED)) {
+                LOG.debug("A4S: Evaluated Metrics: {}", evaluatedMetrics);
+
+                A4S a4s = new A4S(jobTopology, evaluatedMetrics, scalingSummaries);
+                Map<JobVertexID, Decision> decisions = a4s.makeDecision(conf);
+
+                boolean a4sManagedMemoryOverrideEnabled =
+                conf.get(A4S_ENABLED) && conf.get(A4S_MANAGED_MEMORY_OVERRIDE_ENABLED);
+                double a4sManagedMemoryOverrideMb = conf.get(A4S_MANAGED_MEMORY_OVERRIDE_MB);
+                double a4sMemoryBaseMb = conf.get(A4S_MEMORY_BASE_MB);
+                
+                // piggy-back off of justin's scaling algorithm for now
+                currentScalingConf.getScaling().forEach((id, information) -> {
+                    information.setParallelism(Optional.ofNullable(decisions.get(id)).map(Decision::getParallelism).orElse(information.getParallelism()));
+                    double memoryMb = Optional.ofNullable(decisions.get(id)).map(Decision::getMemoryMB).orElse(0.0);
+                    information.setManagedMemoryMB(memoryMb + a4sMemoryBaseMb);
+                    if (a4sManagedMemoryOverrideEnabled) {
+                        information.setManagedMemoryMB(a4sManagedMemoryOverrideMb);
+                    }
+                    LOG.debug("A4S: Vertex {} has parallelism {} and memory {}MB", id, information.getParallelism(), information.getManagedMemoryMB());
+                });
+            } else {
+                policy(context, currentScalingConf, conf);
+            }
             storeScalingConfigurationHistory(context, now, currentPeriod, currentScalingConf, conf);
             LOG.info(scalingConfigurations.toString());
 
@@ -530,9 +557,12 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
     public static Map<String, String> getVertexResourceProfileOverrides(JobID jobID, ScalingConfigurations scalingConfigurations, Configuration conf) {
         var overrides = new HashMap<String, String>();
         scalingConfigurations.getCurrentConfiguration(jobID, periods.getOrDefault(jobID, 0)).getScaling().forEach((id, information) -> {
+            var managedMemoryMB = information.getManagedMemoryMB();
             overrides.put(
                     id.toString(),
-                    String.valueOf(getResourceProfile(conf, information.getMemoryLevel()))
+                    managedMemoryMB >= 0
+                            ? String.valueOf(getResourceProfile(conf, managedMemoryMB))
+                            : String.valueOf(getResourceProfile(conf, information.getMemoryLevel()))
             );
         } );
         return overrides;
@@ -591,6 +621,31 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
         }
     }
 
+    private static ResourceProfile getResourceProfile(Configuration conf, double managedMemoryMB) {
+        var memory = conf.get(TaskManagerOptions.TOTAL_PROCESS_MEMORY);
+        int roundedManagedMemoryMB = (int) Math.ceil(Math.max(0.0, managedMemoryMB));
+        if (memory.getGibiBytes() > 3) { // 4 GB
+            return ResourceProfile.newBuilder()
+                    .setCpuCores(1.0)
+                    .setTaskHeapMemoryMB(363)
+                    .setTaskOffHeapMemoryMB(0)
+                    .setManagedMemoryMB(roundedManagedMemoryMB)
+                    .setNetworkMemoryMB(84)
+                    .build();
+        } else {
+            return  ResourceProfile.newBuilder()
+                    .setCpuCores(1.0)
+                    .setTaskHeapMemoryMB(134)
+                    .setTaskOffHeapMemoryMB(0)
+                    .setManagedMemoryMB(roundedManagedMemoryMB)
+                    .setNetworkMemoryMB(39)
+                    .build();
+        }
+    }
+
+    /**
+     * Original Justin scaling policy (fallback when A4S is disabled).
+     */
     private void policy(Context context, ScalingConfigurations.ScalingConfiguration scaling, Configuration conf) {
         LOG.info("Justin: policy() invoked. MAX_MEMORY_LEVEL={}, MIN_CACHE_HIT_RATE_THRESHOLD={}, STATE_ACCESS_LATENCY_THRESHOLD={}",
                 conf.get(MAX_MEMORY_LEVEL), conf.get(MIN_CACHE_HIT_RATE_THRESHOLD), conf.get(STATE_ACCESS_LATENCY_THRESHOLD));

@@ -17,6 +17,10 @@
 
 package org.apache.flink.autoscaler;
 
+import org.apache.flink.api.common.JobID;
+import org.apache.flink.a4s.core.MissRateCurve;
+import org.apache.flink.autoscaler.utils.a4s.A4SAggregatedMetricsResponseBody;
+import org.apache.flink.autoscaler.utils.a4s.A4SAggregatedVertexMetricsHeaders;
 import org.apache.flink.autoscaler.metrics.FlinkMetric;
 import org.apache.flink.client.program.rest.RestClusterClient;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
@@ -44,6 +48,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Collection;
 import java.util.stream.Collectors;
 
 import static org.apache.flink.autoscaler.metrics.FlinkMetric.HEAP_MEMORY_MAX;
@@ -80,6 +85,18 @@ public class RestApiMetricsCollector<KEY, Context extends JobAutoScalerContext<K
                                 e -> queryAggregatedVertexMetrics(ctx, e.getKey(), e.getValue())));
     }
 
+    @Override
+    protected Map<JobVertexID, MissRateCurve> queryAllMissRateCurves(
+            Context ctx, Collection<JobVertexID> jobVertexIds) {
+        return jobVertexIds.stream()
+                .map(v -> {
+                    var curve = queryVertexMissRateCurve(ctx, ctx.getJobID(), v);
+                    return curve == null ? null : Map.entry(v, curve);
+                })
+                .filter(entry -> entry != null)
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
     @SneakyThrows
     protected Map<FlinkMetric, AggregatedMetric> queryAggregatedVertexMetrics(
             Context ctx, JobVertexID jobVertexID, Map<String, FlinkMetric> metrics) {
@@ -109,6 +126,31 @@ public class RestApiMetricsCollector<KEY, Context extends JobAutoScalerContext<K
                             .get();
 
             return aggregateByFlinkMetric(metrics, responseBody);
+        }
+    }
+
+    protected MissRateCurve queryVertexMissRateCurve(Context ctx, JobID jobId, JobVertexID jobVertexID) {
+        var parameters = new AggregatedSubtaskMetricsParameters();
+        var pathIt = parameters.getPathParameters().iterator();
+        ((JobIDPathParameter) pathIt.next()).resolve(jobId);
+        ((JobVertexIdPathParameter) pathIt.next()).resolve(jobVertexID);
+
+        try (var restClient = ctx.getRestClusterClient()) {
+            A4SAggregatedMetricsResponseBody responseBody =
+                    restClient
+                            .sendRequest(
+                                    A4SAggregatedVertexMetricsHeaders.getInstance(),
+                                    parameters,
+                                    EmptyRequestBody.getInstance())
+                            .get();
+            return responseBody.getScaledMrc();
+        } catch (Exception e) {
+            LOG.debug(
+                    "Unable to fetch A4S miss-rate curve for job {}, vertex {}, continuing without MRC",
+                    jobId,
+                    jobVertexID,
+                    e);
+            return null;
         }
     }
 

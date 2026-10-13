@@ -214,7 +214,9 @@ public enum ScalingMetric {
 
     RELATIVE_ROCKSDB_BUSY_TIME(true),
 
-    ABSOLUTE_ROCKSDB_BUSY_TIME(true);
+    ABSOLUTE_ROCKSDB_BUSY_TIME(true),
+
+    INPUT_RATE(false);
 
     @Getter private final boolean calculateAverage;
 

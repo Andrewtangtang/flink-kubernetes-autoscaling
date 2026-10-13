@@ -461,4 +461,57 @@ public class AutoScalerOptions {
                             "Maximum memory level for Justin vertical scaling. "
                                     + "Valid levels are 0..(max-level - 1). "
                                     + "Increase this to allow more aggressive vertical scaling steps.");
+
+    // A4S Configuration Options
+
+    public static final ConfigOption<Boolean> A4S_ENABLED =
+            autoScalerConfig("a4s.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Enable A4S co-designed scaling and placement algorithm. "
+                                    + "When enabled, the autoscaler will use memory-parallelism curves "
+                                    + "to find optimal (memory, parallelism) configurations for stateful operators.");
+
+    public static final ConfigOption<Integer> A4S_MAX_ATTEMPTS =
+            autoScalerConfig("a4s.max-attempts")
+                    .intType()
+                    .defaultValue(20)
+                    .withDescription(
+                            "Maximum number of attempts to find a valid (memory, parallelism) configuration for a stateful operator.");
+
+    public static final ConfigOption<Double> A4S_HIT_LATENCY_SEC =
+            autoScalerConfig("a4s.hit-latency-sec")
+                    .doubleType()
+                    .defaultValue(5e-6)
+                    .withDescription(
+                            "Latency (in sec) for a cache hit operation.");
+
+    public static final ConfigOption<Double> A4S_MISS_LATENCY_SEC =
+            autoScalerConfig("a4s.miss-latency-sec")
+                    .doubleType()
+                    .defaultValue(5e-6 * 1000)
+                    .withDescription(
+                            "Latency (in sec) for a cache miss operation.");
+
+    public static final ConfigOption<Boolean> A4S_MANAGED_MEMORY_OVERRIDE_ENABLED =
+            autoScalerConfig("a4s.managed-memory-override.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to override A4S-managed memory decisions with a constant value.");
+
+    public static final ConfigOption<Integer> A4S_MANAGED_MEMORY_OVERRIDE_MB =
+            autoScalerConfig("a4s.managed-memory-override.mb")
+                    .intType()
+                    .defaultValue(0)
+                    .withDescription(
+                            "Constant managed memory in MB used when a4s.managed-memory-override.enabled is true.");
+
+    public static final ConfigOption<Double> A4S_MEMORY_BASE_MB =
+            autoScalerConfig("a4s.memory-base.mb")
+                    .doubleType()
+                    .defaultValue(0.0)
+                    .withDescription(
+                            "Base memory in MB used per operator for a4s.");
 }

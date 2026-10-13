@@ -28,6 +28,7 @@ import org.apache.flink.autoscaler.metrics.FlinkMetric;
 import org.apache.flink.autoscaler.metrics.MetricNotFoundException;
 import org.apache.flink.autoscaler.metrics.ScalingMetric;
 import org.apache.flink.autoscaler.metrics.ScalingMetrics;
+import org.apache.flink.a4s.core.MissRateCurve;
 import org.apache.flink.autoscaler.state.AutoScalerStateStore;
 import org.apache.flink.autoscaler.topology.IOMetrics;
 import org.apache.flink.autoscaler.topology.JobTopology;
@@ -131,7 +132,9 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
         var filteredVertexMetricNames = queryFilteredMetricNames(ctx, topology, isStabilizing);
 
         // Aggregated job vertex metrics collected from Flink based on the filtered metric names
-        var collectedVertexMetrics = queryAllAggregatedMetrics(ctx, filteredVertexMetricNames);
+        var collectedVertexMetrics = queryAllAggregatedMetrics(ctx, filteredVertexMetricNames);        
+        var collectedMissRateCurves =
+                queryAllMissRateCurves(ctx, filteredVertexMetricNames.keySet());
 
         var collectedJmMetrics = queryJmMetrics(ctx);
         var collectedTmMetrics = queryTmMetrics(ctx);
@@ -143,6 +146,7 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
                         collectedVertexMetrics,
                         collectedJmMetrics,
                         collectedTmMetrics,
+                        collectedMissRateCurves,
                         topology,
                         conf);
 
@@ -300,6 +304,7 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
             Map<JobVertexID, Map<FlinkMetric, AggregatedMetric>> collectedMetrics,
             Map<FlinkMetric, Metric> collectedJmMetrics,
             Map<FlinkMetric, AggregatedMetric> collectedTmMetrics,
+            Map<JobVertexID, MissRateCurve> collectedMissRateCurves,
             JobTopology jobTopology,
             Configuration conf) {
 
@@ -368,7 +373,7 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
                 ScalingMetrics.computeGlobalMetrics(collectedJmMetrics, collectedTmMetrics, conf);
         LOG.debug("Global metrics: {}", globalMetrics);
 
-        return new CollectedMetrics(out, globalMetrics);
+        return new CollectedMetrics(out, globalMetrics, collectedMissRateCurves);
     }
 
     private static Supplier<Double> observedTprAvg(
@@ -549,6 +554,11 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
             queryAllAggregatedMetrics(
                     Context ctx,
                     Map<JobVertexID, Map<String, FlinkMetric>> filteredVertexMetricNames);
+
+    protected Map<JobVertexID, MissRateCurve> queryAllMissRateCurves(
+            Context ctx, Collection<JobVertexID> jobVertexIds) {
+        return Collections.emptyMap();
+    }
 
     public JobDetailsInfo getJobDetailsInfo(
             JobAutoScalerContext<KEY> context, Duration clientTimeout) throws Exception {

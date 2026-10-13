@@ -24,7 +24,9 @@ ARG HTTP_CLIENT=okhttp
 WORKDIR /app
 
 COPY . .
+COPY --from=flink-src / /flink-src
 
+RUN --mount=type=cache,target=/root/.m2 mvn -f /flink-src/flink-a4s/pom.xml -ntp install -Dspotless.check.skip=true -Dcheckstyle.skip -DskipTests -Drat.skip=true
 RUN --mount=type=cache,target=/root/.m2 mvn -ntp clean install -pl flink-kubernetes-standalone,flink-kubernetes-operator-api,flink-kubernetes-operator,flink-autoscaler,flink-kubernetes-webhook -Dspotless.check.skip=true -Dcheckstyle.skip -DskipTests -Drat.skip=true -Dfabric8.httpclient.impl="$HTTP_CLIENT"
 
 RUN cd /app/tools/license; mkdir jars; cd jars; \

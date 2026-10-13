@@ -61,6 +61,7 @@ public class ScalingConfigurationSnapshot {
 
         private int parallelism;
         private int memoryLevel;
+        private double managedMemoryMB = -1.0;
         private boolean verticalScaling;
         private boolean horizontalScaling;
         private boolean stopVerticalScaling;
@@ -73,6 +74,7 @@ public class ScalingConfigurationSnapshot {
             var snapshot = new VertexScalingSnapshot();
             snapshot.setParallelism(scalingInformation.getParallelism());
             snapshot.setMemoryLevel(scalingInformation.getMemoryLevel());
+            snapshot.setManagedMemoryMB(scalingInformation.getManagedMemoryMB());
             snapshot.setVerticalScaling(scalingInformation.isVerticalScaling());
             snapshot.setHorizontalScaling(scalingInformation.isHorizontalScaling());
             snapshot.setStopVerticalScaling(scalingInformation.isStopVerticalScaling());
