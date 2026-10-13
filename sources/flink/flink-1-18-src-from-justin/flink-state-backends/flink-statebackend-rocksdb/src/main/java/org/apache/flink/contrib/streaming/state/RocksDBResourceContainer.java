@@ -227,12 +227,14 @@ public final class RocksDBResourceContainer implements AutoCloseable {
                     && overwriteFilterIfExist(blockBasedTableConfig)) {
                 blockBasedTableConfig.setIndexType(IndexType.kTwoLevelIndexSearch);
                 blockBasedTableConfig.setPartitionFilters(true);
-                blockBasedTableConfig.setPinTopLevelIndexAndFilter(true);
+                blockBasedTableConfig.setPinTopLevelIndexAndFilter(false);
             }
+            // A4S: keep index/filter blocks out of the shared cache (table-reader memory), as
+            // without managed memory, so the cache holds only what the MRC models.
             blockBasedTableConfig.setBlockCache(blockCache);
-            blockBasedTableConfig.setCacheIndexAndFilterBlocks(true);
-            blockBasedTableConfig.setCacheIndexAndFilterBlocksWithHighPriority(true);
-            blockBasedTableConfig.setPinL0FilterAndIndexBlocksInCache(true);
+            blockBasedTableConfig.setCacheIndexAndFilterBlocks(false);
+            blockBasedTableConfig.setCacheIndexAndFilterBlocksWithHighPriority(false);
+            blockBasedTableConfig.setPinL0FilterAndIndexBlocksInCache(false);
             opt.setTableFormatConfig(blockBasedTableConfig);
         }
 
