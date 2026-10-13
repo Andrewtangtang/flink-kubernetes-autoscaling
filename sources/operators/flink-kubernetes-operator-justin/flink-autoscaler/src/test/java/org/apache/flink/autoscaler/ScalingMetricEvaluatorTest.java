@@ -17,6 +17,7 @@
 
 package org.apache.flink.autoscaler;
 
+import org.apache.flink.a4s.core.MissRateCurve;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.autoscaler.config.AutoScalerOptions;
 import org.apache.flink.autoscaler.metrics.CollectedMetricHistory;
@@ -35,6 +36,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -917,5 +919,43 @@ public class ScalingMetricEvaluatorTest {
         return Tuple2.of(
                 map.get(ScalingMetric.SCALE_UP_RATE_THRESHOLD).getCurrent(),
                 map.get(ScalingMetric.SCALE_DOWN_RATE_THRESHOLD).getCurrent());
+    }
+
+    @Test
+    public void testMemoryParallelismCurvesOnlyWhenA4SEnabled() {
+        var source = new JobVertexID();
+        var topology = new JobTopology(new VertexInfo(source, Collections.emptyMap(), 1, 1, null));
+        var mrc =
+                new MissRateCurve(
+                        List.of(
+                                new MissRateCurve.Point(1L << 20, 0.5),
+                                new MissRateCurve.Point(2L << 20, 0.1)));
+        var metricHistory = new TreeMap<Instant, CollectedMetrics>();
+        for (int i = 1; i <= 2; i++) {
+            metricHistory.put(
+                    Instant.ofEpochMilli(i * 1000L),
+                    new CollectedMetrics(
+                            Map.of(
+                                    source,
+                                    Map.of(
+                                            ScalingMetric.LAG, 0.,
+                                            ScalingMetric.NUM_RECORDS_IN, i * 100.,
+                                            ScalingMetric.NUM_RECORDS_OUT, i * 100.,
+                                            ScalingMetric.LOAD, .5)),
+                            Map.of(),
+                            Map.of(source, mrc)));
+        }
+        var history = new CollectedMetricHistory(topology, metricHistory, Instant.now());
+
+        var conf = new Configuration();
+        assertTrue(
+                evaluator.evaluate(conf, history, Duration.ZERO).getMemoryParallelismCurves().isEmpty());
+
+        conf.set(AutoScalerOptions.A4S_ENABLED, true);
+        assertTrue(
+                evaluator
+                        .evaluate(conf, history, Duration.ZERO)
+                        .getMemoryParallelismCurves()
+                        .containsKey(source));
     }
 }

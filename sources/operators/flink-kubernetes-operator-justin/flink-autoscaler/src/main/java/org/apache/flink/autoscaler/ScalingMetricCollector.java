@@ -132,9 +132,11 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
         var filteredVertexMetricNames = queryFilteredMetricNames(ctx, topology, isStabilizing);
 
         // Aggregated job vertex metrics collected from Flink based on the filtered metric names
-        var collectedVertexMetrics = queryAllAggregatedMetrics(ctx, filteredVertexMetricNames);        
+        var collectedVertexMetrics = queryAllAggregatedMetrics(ctx, filteredVertexMetricNames);
         var collectedMissRateCurves =
-                queryAllMissRateCurves(ctx, filteredVertexMetricNames.keySet());
+                conf.get(AutoScalerOptions.A4S_ENABLED)
+                        ? queryAllMissRateCurves(ctx, filteredVertexMetricNames.keySet())
+                        : Map.<JobVertexID, MissRateCurve>of();
 
         var collectedJmMetrics = queryJmMetrics(ctx);
         var collectedTmMetrics = queryTmMetrics(ctx);

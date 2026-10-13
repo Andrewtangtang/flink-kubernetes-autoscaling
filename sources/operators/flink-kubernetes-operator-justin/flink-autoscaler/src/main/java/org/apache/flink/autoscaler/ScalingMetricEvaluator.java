@@ -77,6 +77,7 @@ public class ScalingMetricEvaluator {
                 latestCollectedMetrics.getMissRateCurves() == null
                         ? Map.of()
                         : latestCollectedMetrics.getMissRateCurves();
+        boolean a4sEnabled = conf.get(AutoScalerOptions.A4S_ENABLED);
         double hitLatencySec = conf.getDouble(AutoScalerOptions.A4S_HIT_LATENCY_SEC);
         double missLatencySec = conf.getDouble(AutoScalerOptions.A4S_MISS_LATENCY_SEC);
         int vertexMinParallelism = conf.get(AutoScalerOptions.VERTEX_MIN_PARALLELISM);
@@ -96,7 +97,10 @@ public class ScalingMetricEvaluator {
                             processingBacklog,
                             restartTime));
 
-            // This relies on target data rate first being calculated       
+            if (!a4sEnabled) {
+                continue;
+            }
+            // This relies on target data rate first being calculated
             LOG.debug("A4S: Evaluating metrics for vertex {}", vertex);
             MissRateCurve missRateCurve = collectedMissRateCurves.get(vertex);
             if (missRateCurve == null) {
