@@ -952,10 +952,19 @@ public class ScalingMetricEvaluatorTest {
                 evaluator.evaluate(conf, history, Duration.ZERO).getMemoryParallelismCurves().isEmpty());
 
         conf.set(AutoScalerOptions.A4S_ENABLED, true);
-        assertTrue(
+        var evaluated = evaluator.evaluate(conf, history, Duration.ZERO);
+        assertTrue(evaluated.getMemoryParallelismCurves().containsKey(source));
+
+        // Pmax = ceil(l_max * T)
+        double target =
+                evaluated.getVertexMetrics().get(source).get(ScalingMetric.TARGET_DATA_RATE).getAverage();
+        conf.set(AutoScalerOptions.A4S_MAX_LATENCY_SEC, 0.02);
+        assertEquals(
+                (int) Math.ceil(0.02 * target),
                 evaluator
                         .evaluate(conf, history, Duration.ZERO)
                         .getMemoryParallelismCurves()
-                        .containsKey(source));
+                        .get(source)
+                        .getMaxParallelism());
     }
 }

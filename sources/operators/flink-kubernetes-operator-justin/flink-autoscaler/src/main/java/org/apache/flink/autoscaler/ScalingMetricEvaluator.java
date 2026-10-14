@@ -80,6 +80,7 @@ public class ScalingMetricEvaluator {
         boolean a4sEnabled = conf.get(AutoScalerOptions.A4S_ENABLED);
         double hitLatencySec = conf.getDouble(AutoScalerOptions.A4S_HIT_LATENCY_SEC);
         double missLatencySec = conf.getDouble(AutoScalerOptions.A4S_MISS_LATENCY_SEC);
+        Optional<Double> maxLatencySec = conf.getOptional(AutoScalerOptions.A4S_MAX_LATENCY_SEC);
         int vertexMinParallelism = conf.get(AutoScalerOptions.VERTEX_MIN_PARALLELISM);
         int vertexMaxParallelism = conf.get(AutoScalerOptions.VERTEX_MAX_PARALLELISM);
 
@@ -107,12 +108,18 @@ public class ScalingMetricEvaluator {
                 LOG.warn("A4S: No miss rate curve found for vertex {}, skipping", vertex);
                 continue;
             }
+            double targetDataRate = scalingOutput.get(vertex).get(TARGET_DATA_RATE).getAverage();
+            // Pmax = ceil(l_max * T) bounds the per-record latency budget P / T
+            int maxParallelism =
+                    maxLatencySec
+                            .map(l -> (int) Math.min(vertexMaxParallelism, Math.ceil(l * targetDataRate)))
+                            .orElse(vertexMaxParallelism);
             MemoryParallelismCurve mpc = MemoryParallelismCurve.fromMissRateCurve(
-                scalingOutput.get(vertex).get(TARGET_DATA_RATE).getAverage(),
-                missLatencySec, 
-                hitLatencySec, 
+                targetDataRate,
+                missLatencySec,
+                hitLatencySec,
                 vertexMinParallelism,
-                vertexMaxParallelism,
+                maxParallelism,
                 missRateCurve);
             if (mpc != null) {
                 memoryParallelismCurves.put(vertex, mpc);

@@ -494,6 +494,14 @@ public class AutoScalerOptions {
                     .withDescription(
                             "Latency (in sec) for a cache miss operation.");
 
+    public static final ConfigOption<Double> A4S_MAX_LATENCY_SEC =
+            autoScalerConfig("a4s.max-latency-sec")
+                    .doubleType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Maximum per-record operator latency l_max (in sec). Bounds parallelism by "
+                                    + "Pmax = ceil(l_max * target rate); unset means only vertex.max-parallelism applies.");
+
     public static final ConfigOption<Boolean> A4S_MANAGED_MEMORY_OVERRIDE_ENABLED =
             autoScalerConfig("a4s.managed-memory-override.enabled")
                     .booleanType()

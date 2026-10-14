@@ -166,24 +166,42 @@ public class MemoryParallelismCurve {
             throw new IllegalArgumentException("missLatencySec (" + missLatencySec + ") should be greater than hitLatencySec (" + hitLatencySec + ")");
         }
 
+        // Below this miss rate the MRC has no data (D_cap bound or cold misses), so
+        // leastMemoryBytesForMissRate would return a size that does not reach the target.
+        double minReachableMissRate =
+                mrc.getPoints().stream()
+                        .mapToDouble(MissRateCurve.Point::getMissRate)
+                        .min()
+                        .orElse(Double.POSITIVE_INFINITY);
+
         for (int parallelism = minParallelism; parallelism <= maxParallelism; parallelism++) {
             // This is the maximum acceptable miss rate. We need a cache size
             // that achieves this miss rate or lower
             double maximumMissRate = ((parallelism / targetThroughputPerSec) - hitLatencySec) / latencyDiff;
 
-            // It's impossible to achieve the desired throughput with the given parallelism and hit latency
+            // Below Pmin = ceil(l_hit * T): even an all-hit cache cannot sustain T
             if (maximumMissRate <= 0) {
-                throw new IllegalStateException(String.format("Maximum miss-rate <= 0. parallelism=%d targetThroughput=%f hitLatencySec=%f missLatencySec=%f", parallelism, targetThroughputPerSec, hitLatencySec, missLatencySec));
+                continue;
             }
 
             // Perhaps any level miss rate is acceptable, so we clamp to 1.0
             if (maximumMissRate > 1.0) {
-                LOG.warn("Parallelism {} has maximum miss rate {}, clamping to 1.0", parallelism, maximumMissRate);
+                LOG.debug("Parallelism {} has maximum miss rate {}, clamping to 1.0", parallelism, maximumMissRate);
                 maximumMissRate = 1.0;
+            }
+
+            if (maximumMissRate < minReachableMissRate) {
+                continue;
             }
 
             double memoryMB = mrc.leastMemoryBytesForMissRate(maximumMissRate) / (1024.0 * 1024.0);
             builder.addPoint(parallelism, memoryMB);
+        }
+        if (builder.points.isEmpty()) {
+            LOG.warn(
+                    "No feasible parallelism in [{}, {}] for target {} (min reachable miss rate {})",
+                    minParallelism, maxParallelism, targetThroughputPerSec, minReachableMissRate);
+            return null;
         }
         return builder.build();
     }

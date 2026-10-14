@@ -85,16 +85,36 @@ public class MemoryParallelismCurveTest {
     }
 
     @Test
-    void testFromMissRateCurve_negativeMissRateThrowsException() {
+    void testFromMissRateCurve_skipsParallelismBelowPmin() {
         MissRateCurve mrc = new MissRateCurve(List.of(
-                new MissRateCurve.Point(100L, 0.5)
+                new MissRateCurve.Point(100L, 0.0)
             ));
 
-        assertThrows(IllegalStateException.class, () -> MemoryParallelismCurve.fromMissRateCurve(
+        // T = 1000, l_hit = 5ms: P / T - l_hit <= 0 for P <= 5, so Pmin = 6
+        MemoryParallelismCurve mpc = MemoryParallelismCurve.fromMissRateCurve(
                 1000.0,  // targetThroughput
                 5e-2,    // missLatencySec
                 5e-3,    // hitLatencySec
-                1, 24, mrc));
+                1, 24, mrc);
+
+        assertThat(mpc.getMinParallelism()).isEqualTo(6);
+        assertThat(mpc.getMaxParallelism()).isEqualTo(24);
+    }
+
+    @Test
+    void testFromMissRateCurve_skipsMissRatesTheCurveCannotReach() {
+        MissRateCurve mrc = new MissRateCurve(List.of(
+                new MissRateCurve.Point(100L * 1024 * 1024, 0.5),
+                new MissRateCurve.Point(200L * 1024 * 1024, 0.3)
+            ));
+
+        // T = 100, l_hit = 0, l_miss = 0.1: max miss rate = P / 10, so P = 1, 2 need < 0.3
+        MemoryParallelismCurve mpc = MemoryParallelismCurve.fromMissRateCurve(
+                100.0, 0.1, 0.0, 1, 6, mrc);
+
+        assertThat(mpc.getMinParallelism()).isEqualTo(3);
+        assertThat(mpc.getMemoryMbForParallelism(3)).contains(200.0);
+        assertThat(mpc.getMemoryMbForParallelism(5)).contains(100.0);
     }
 
     @Test
@@ -131,7 +151,8 @@ public class MemoryParallelismCurveTest {
                 5e-6,      // hitLatencySec
                 1, 24, mrc);
 
-        assertThat(mpc.getPoints().size()).isEqualTo(24);
+        // Required miss rates stay below 0.8, which the curve never reaches
+        assertThat(mpc).isNull();
     }
 
     @Test
