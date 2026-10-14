@@ -502,6 +502,13 @@ public class AutoScalerOptions {
                             "Maximum per-record operator latency l_max (in sec). Bounds parallelism by "
                                     + "Pmax = ceil(l_max * target rate); unset means only vertex.max-parallelism applies.");
 
+    public static final ConfigOption<Double> A4S_MAX_TASK_MANAGED_MEMORY_MB =
+            autoScalerConfig("a4s.max-task-managed-memory.mb")
+                    .doubleType()
+                    .defaultValue(600.0)
+                    .withDescription(
+                            "Largest managed memory (in MB, including a4s.memory-base.mb) A4S may give one task slot.");
+
     public static final ConfigOption<Boolean> A4S_MANAGED_MEMORY_OVERRIDE_ENABLED =
             autoScalerConfig("a4s.managed-memory-override.enabled")
                     .booleanType()

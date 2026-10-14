@@ -65,8 +65,8 @@ public class A4STest {
         A4S a4s = new A4S(topology, evaluatedMetrics);
         Map<JobVertexID, A4S.Decision> result = a4s.makeDecision(conf);
 
-        // Pmin = 1 does not fit the 600 MB cap; one step of Alg 3 reaches P = 2,
-        // below what DS2 would have recommended
+        // Per task with write-buffer-ratio 0.5: P=1 needs 800/1/0.5 = 1600 MB > 600 MB,
+        // P=2 needs 500/2/0.5 = 500 MB, so Pmin is raised to 2
         assertThat(result).containsKey(operator);
         assertThat(result.get(operator).getParallelism()).isEqualTo(2);
         assertThat(result.get(operator).getMemoryMB()).isEqualTo(500.0);
@@ -75,9 +75,9 @@ public class A4STest {
     @ParameterizedTest
     @CsvSource({
             "1, 800.0",
-            "2, 500.0",
-            "4, 300.0",
-            "8, 200.0"
+            "2, 250.0",
+            "4, 75.0",
+            "8, 25.0"
     })
     void testPlace_mpcWithMultipleParallelismLevels(int parallelism, double expectedMemory) {
         JobVertexID operator1 = new JobVertexID();
@@ -96,7 +96,7 @@ public class A4STest {
         Map<JobVertexID, Integer> parallelismForVertex = Map.of(operator1, parallelism);
         Map<JobVertexID, MemoryParallelismCurve> mpcs = Map.of(operator1, mpc);
 
-        Optional<Map<JobVertexID, A4S.Decision>> result = a4s.place(parallelismForVertex, mpcs, 1000.0);
+        Optional<Map<JobVertexID, A4S.Decision>> result = a4s.place(parallelismForVertex, mpcs, 1000.0, 0.0);
 
         assertThat(result).isPresent();
         assertThat(result.get().get(operator1).getParallelism()).isEqualTo(parallelism);
@@ -127,14 +127,14 @@ public class A4STest {
                 operator1, mpc1,
                 operator2, mpc2);
 
-        Optional<Map<JobVertexID, A4S.Decision>> result = a4s.place(parallelismForVertex, mpcs, 600.0);
+        Optional<Map<JobVertexID, A4S.Decision>> result = a4s.place(parallelismForVertex, mpcs, 600.0, 0.0);
 
         assertThat(result).isPresent();
         assertThat(result.get()).hasSize(2);
         assertThat(result.get().get(operator1).getParallelism()).isEqualTo(2);
-        assertThat(result.get().get(operator1).getMemoryMB()).isEqualTo(500.0);
+        assertThat(result.get().get(operator1).getMemoryMB()).isEqualTo(250.0);
         assertThat(result.get().get(operator2).getParallelism()).isEqualTo(3);
-        assertThat(result.get().get(operator2).getMemoryMB()).isEqualTo(600.0);
+        assertThat(result.get().get(operator2).getMemoryMB()).isEqualTo(200.0);
     }
 
     @Test
@@ -156,13 +156,13 @@ public class A4STest {
                 operator2, 3);
         Map<JobVertexID, MemoryParallelismCurve> mpcs = Map.of(operator2, mpc2);
 
-        Optional<Map<JobVertexID, A4S.Decision>> result = a4s.place(parallelismForVertex, mpcs, 1000.0);
+        Optional<Map<JobVertexID, A4S.Decision>> result = a4s.place(parallelismForVertex, mpcs, 1000.0, 0.0);
 
         // Result should be present, but operator1 is skipped
         assertThat(result).isPresent();
         assertThat(result.get()).hasSize(1);
         assertThat(result.get().get(operator2).getParallelism()).isEqualTo(3);
-        assertThat(result.get().get(operator2).getMemoryMB()).isEqualTo(600.0);
+        assertThat(result.get().get(operator2).getMemoryMB()).isEqualTo(200.0);
     }
 
     @Test
@@ -175,7 +175,7 @@ public class A4STest {
         Map<JobVertexID, Integer> parallelismForVertex = Map.of();
         Map<JobVertexID, MemoryParallelismCurve> mpcs = Map.of();
 
-        Optional<Map<JobVertexID, A4S.Decision>> result = a4s.place(parallelismForVertex, mpcs, 600.0);
+        Optional<Map<JobVertexID, A4S.Decision>> result = a4s.place(parallelismForVertex, mpcs, 600.0, 0.0);
 
         assertThat(result).isPresent();
         assertThat(result.get()).isEmpty();
@@ -320,5 +320,32 @@ public class A4STest {
         Optional<JobVertexID> result = a4s.increaseParallelism(parallelismForVertex, mpcs);
 
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    void testMakeDecision_operatorThatNeverFitsDoesNotBlockOthers() {
+        JobVertexID fits = new JobVertexID();
+        JobVertexID tooBig = new JobVertexID();
+        JobTopology topology = new JobTopology(
+                new VertexInfo(fits, Map.of(), 1, 100),
+                new VertexInfo(tooBig, Map.of(fits, ShipStrategy.REBALANCE), 1, 100));
+
+        EvaluatedMetrics evaluatedMetrics =
+                new EvaluatedMetrics(
+                        Map.of(),
+                        Map.of(),
+                        Map.of(
+                                fits, new MemoryParallelismCurve(1000.0, List.of(
+                                        new MemoryParallelismCurve.Point(1, 100.0))),
+                                tooBig, new MemoryParallelismCurve(1000.0, List.of(
+                                        new MemoryParallelismCurve.Point(1, 5000.0),
+                                        new MemoryParallelismCurve.Point(2, 4000.0)))),
+                        Map.of());
+
+        Map<JobVertexID, A4S.Decision> result =
+                new A4S(topology, evaluatedMetrics).makeDecision(new Configuration());
+
+        assertThat(result).containsOnlyKeys(fits);
+        assertThat(result.get(fits).getMemoryMB()).isEqualTo(200.0);
     }
 }

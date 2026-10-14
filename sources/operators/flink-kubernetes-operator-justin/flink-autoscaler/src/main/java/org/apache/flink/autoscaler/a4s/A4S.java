@@ -22,6 +22,8 @@ import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.autoscaler.config.AutoScalerOptions;
 import org.apache.flink.autoscaler.metrics.EvaluatedMetrics;
 import org.apache.flink.autoscaler.topology.JobTopology;
+import org.apache.flink.configuration.ConfigOption;
+import org.apache.flink.configuration.ConfigOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.slf4j.Logger;
@@ -31,7 +33,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * A4S Scaling Policy implementation.
@@ -49,6 +50,13 @@ public class A4S {
         this.operators = jobTopology.getVerticesInTopologicalOrder();
     }
 
+    // Flink's state.backend.rocksdb.memory.write-buffer-ratio, read from the job configuration
+    private static final ConfigOption<Double> WRITE_BUFFER_RATIO =
+            ConfigOptions.key("state.backend.rocksdb.memory.write-buffer-ratio")
+                    .doubleType()
+                    .defaultValue(0.5);
+
+    /** Per-vertex result; memoryMB is the managed memory of one task, excluding a4s.memory-base.mb. */
     public static class Decision {
         @Getter
         private final int parallelism;
@@ -74,25 +82,40 @@ public class A4S {
      */
     public Map<JobVertexID, Decision> makeDecision(Configuration conf) {
         Map<JobVertexID, MemoryParallelismCurve> mpcs = this.evaluatedMetrics.getMemoryParallelismCurves();
-        // Alg 1: every stateful operator starts at Pmin (least IO, most memory)
-        Map<JobVertexID, Integer> parallelismForVertex =
-                mpcs.entrySet().stream()
-                        .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getMinParallelism()));
-        
-        
-        double maxManagedMemoryMB = 600 - conf.get(AutoScalerOptions.A4S_MEMORY_BASE_MB);
+        double writeBufferRatio = conf.get(WRITE_BUFFER_RATIO);
+        double maxTaskMemoryMB =
+                conf.get(AutoScalerOptions.A4S_MAX_TASK_MANAGED_MEMORY_MB)
+                        - conf.get(AutoScalerOptions.A4S_MEMORY_BASE_MB);
+
+        // Alg 1 starts every stateful operator at Pmin, raised to the first P whose task fits
+        // one slot (thesis 3.2.3). Operators that fit at no P get no decision.
+        Map<JobVertexID, MemoryParallelismCurve> feasible = new HashMap<>();
+        Map<JobVertexID, Integer> parallelismForVertex = new HashMap<>();
+        mpcs.forEach(
+                (operator, mpc) -> {
+                    for (int p = mpc.getMinParallelism(); p <= mpc.getMaxParallelism(); p++) {
+                        if (taskMemoryMB(mpc, p, writeBufferRatio) <= maxTaskMemoryMB) {
+                            feasible.put(operator, mpc);
+                            parallelismForVertex.put(operator, p);
+                            return;
+                        }
+                    }
+                    LOG.warn("A4S: Operator {} exceeds {}MB per task at every parallelism of {}", operator, maxTaskMemoryMB, mpc);
+                });
+
         int maxAttempts = conf.get(AutoScalerOptions.A4S_MAX_ATTEMPTS);
 
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
             LOG.info("A4S: Attempt {} - Making decisions", attempt);
-            Optional<Map<JobVertexID, Decision>> decisions = place(parallelismForVertex, mpcs, maxManagedMemoryMB);
+            Optional<Map<JobVertexID, Decision>> decisions =
+                    place(parallelismForVertex, feasible, maxTaskMemoryMB, writeBufferRatio);
             if (decisions.isPresent()) {
                 LOG.info("A4S: Decisions: {}", decisions.get());
                 return decisions.get();
             }
 
             LOG.info("A4S: No decision can be made, increasing parallelism");
-            Optional<JobVertexID> operator = increaseParallelism(parallelismForVertex, mpcs);
+            Optional<JobVertexID> operator = increaseParallelism(parallelismForVertex, feasible);
             if (operator.isPresent()) {
                 int newParallelism = parallelismForVertex.get(operator.get()) + 1;
                 parallelismForVertex.put(operator.get(), newParallelism);
@@ -111,7 +134,8 @@ public class A4S {
     Optional<Map<JobVertexID, Decision>> place(
         Map<JobVertexID, Integer> parallelismForVertex,
         Map<JobVertexID, MemoryParallelismCurve> memoryParallelismCurves,
-        double maxManagedMemoryMB) {
+        double maxTaskMemoryMB,
+        double writeBufferRatio) {
         Map<JobVertexID, Decision> decisions = new HashMap<>();
 
         for (JobVertexID operator : operators) {
@@ -122,9 +146,9 @@ public class A4S {
             }
 
             int parallelism = parallelismForVertex.get(operator);
-            double memoryMB = mpc.getMemoryMbForParallelism(parallelism).orElseThrow(() -> new IllegalStateException("No memory for parallelism " + parallelism + " found for operator " + operator));
+            double memoryMB = taskMemoryMB(mpc, parallelism, writeBufferRatio);
 
-            if (memoryMB > maxManagedMemoryMB) {
+            if (memoryMB > maxTaskMemoryMB) {
                 return Optional.empty();
             }
             
@@ -134,6 +158,19 @@ public class A4S {
         }
 
         return Optional.of(decisions);
+    }
+
+    /**
+     * Managed memory one task needs at parallelism p: the operator's cache need split evenly
+     * across p tasks (Alg 2), scaled up because only (1 - write-buffer-ratio) of a slot's managed
+     * memory is left for data blocks once memtables fill the write buffer manager.
+     */
+    @VisibleForTesting
+    static double taskMemoryMB(MemoryParallelismCurve mpc, int p, double writeBufferRatio) {
+        double operatorMemoryMB =
+                mpc.getMemoryMbForParallelism(p)
+                        .orElseThrow(() -> new IllegalStateException("No memory for parallelism " + p + " in " + mpc));
+        return operatorMemoryMB / p / (1 - writeBufferRatio);
     }
 
     /**
