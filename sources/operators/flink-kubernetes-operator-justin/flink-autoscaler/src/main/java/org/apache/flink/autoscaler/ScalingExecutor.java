@@ -174,7 +174,7 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
             if (conf.get(A4S_ENABLED)) {
                 LOG.debug("A4S: Evaluated Metrics: {}", evaluatedMetrics);
 
-                A4S a4s = new A4S(jobTopology, evaluatedMetrics, scalingSummaries);
+                A4S a4s = new A4S(jobTopology, evaluatedMetrics);
                 Map<JobVertexID, Decision> decisions = a4s.makeDecision(conf);
 
                 boolean a4sManagedMemoryOverrideEnabled =

@@ -17,7 +17,6 @@
 
 package org.apache.flink.autoscaler.a4s;
 
-import org.apache.flink.autoscaler.ScalingSummary;
 import org.apache.flink.autoscaler.metrics.EvaluatedScalingMetric;
 import org.apache.flink.autoscaler.metrics.EvaluatedMetrics;
 import org.apache.flink.autoscaler.metrics.ScalingMetric;
@@ -44,7 +43,7 @@ public class A4STest {
     // ==================== Tests for place method ====================
 
     @Test
-    void testMakeDecision_startsFromRecommendedParallelism() {
+    void testMakeDecision_startsFromPminNotRecommendedParallelism() {
         JobVertexID operator = new JobVertexID();
         JobTopology topology = new JobTopology(new VertexInfo(operator, Map.of(), 1, 100));
 
@@ -61,15 +60,16 @@ public class A4STest {
                         Map.of(operator, mpc),
                         Map.of());
 
-        Map<JobVertexID, ScalingSummary> scalingSummaries = Map.of(operator, new ScalingSummary(1, 3, Map.of()));
         Configuration conf = new Configuration();
 
-        A4S a4s = new A4S(topology, evaluatedMetrics, scalingSummaries);
+        A4S a4s = new A4S(topology, evaluatedMetrics);
         Map<JobVertexID, A4S.Decision> result = a4s.makeDecision(conf);
 
+        // Pmin = 1 does not fit the 600 MB cap; one step of Alg 3 reaches P = 2,
+        // below what DS2 would have recommended
         assertThat(result).containsKey(operator);
-        assertThat(result.get(operator).getParallelism()).isEqualTo(3);
-        assertThat(result.get(operator).getMemoryMB()).isEqualTo(350.0);
+        assertThat(result.get(operator).getParallelism()).isEqualTo(2);
+        assertThat(result.get(operator).getMemoryMB()).isEqualTo(500.0);
     }
 
     @ParameterizedTest
@@ -84,7 +84,7 @@ public class A4STest {
         JobTopology topology = new JobTopology(
                 new VertexInfo(operator1, Map.of(), 1, 100));
 
-        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()), Map.of());
+        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()));
 
         // MPC with multiple parallelism levels
         MemoryParallelismCurve mpc = new MemoryParallelismCurve(1000.0, List.of(
@@ -111,7 +111,7 @@ public class A4STest {
                 new VertexInfo(operator1, Map.of(), 1, 100),
                 new VertexInfo(operator2, Map.of(operator1, ShipStrategy.REBALANCE), 1, 100));
 
-        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()), Map.of());
+        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()));
 
         MemoryParallelismCurve mpc1 = new MemoryParallelismCurve(1000.0, List.of(
                 new MemoryParallelismCurve.Point(2, 500.0),
@@ -145,7 +145,7 @@ public class A4STest {
                 new VertexInfo(operator1, Map.of(), 1, 100),
                 new VertexInfo(operator2, Map.of(operator1, ShipStrategy.REBALANCE), 1, 100));
 
-        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()), Map.of());
+        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()));
 
         // Only operator2 has an MPC, operator1 is not in the map
         MemoryParallelismCurve mpc2 = new MemoryParallelismCurve(1000.0, List.of(
@@ -170,7 +170,7 @@ public class A4STest {
         // Create an empty topology (no operators)
         JobTopology topology = new JobTopology();
 
-        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()), Map.of());
+        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()));
 
         Map<JobVertexID, Integer> parallelismForVertex = Map.of();
         Map<JobVertexID, MemoryParallelismCurve> mpcs = Map.of();
@@ -189,7 +189,7 @@ public class A4STest {
         JobTopology topology = new JobTopology(
                 new VertexInfo(operator1, Map.of(), 1, 100));
 
-        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()), Map.of());
+        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()));
 
         // MPC: parallelism 1 -> 800 MB, parallelism 2 -> 500 MB (decrease of 300)
         MemoryParallelismCurve mpc = new MemoryParallelismCurve(1000.0, List.of(
@@ -214,7 +214,7 @@ public class A4STest {
                 new VertexInfo(operator1, Map.of(), 1, 100),
                 new VertexInfo(operator2, Map.of(operator1, ShipStrategy.REBALANCE), 1, 100));
 
-        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()), Map.of());
+        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()));
 
         // operator1: parallelism 1 -> 800, parallelism 2 -> 700 (decrease of 100)
         MemoryParallelismCurve mpc1 = new MemoryParallelismCurve(1000.0, List.of(
@@ -248,7 +248,7 @@ public class A4STest {
                 new VertexInfo(operator1, Map.of(), 1, 100),
                 new VertexInfo(operator2, Map.of(operator1, ShipStrategy.REBALANCE), 1, 100));
 
-        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()), Map.of());
+        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()));
 
         // Both MPCs have max parallelism of 2
         MemoryParallelismCurve mpc1 = new MemoryParallelismCurve(1000.0, List.of(
@@ -279,7 +279,7 @@ public class A4STest {
                 new VertexInfo(operator1, Map.of(), 1, 100),
                 new VertexInfo(operator2, Map.of(operator1, ShipStrategy.REBALANCE), 1, 100));
 
-        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()), Map.of());
+        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()));
 
         // operator1 has max parallelism of 2
         MemoryParallelismCurve mpc1 = new MemoryParallelismCurve(1000.0, List.of(
@@ -312,7 +312,7 @@ public class A4STest {
     void testIncreaseParallelism_emptyTopology_returnsEmpty() {
         JobTopology topology = new JobTopology();
 
-        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()), Map.of());
+        A4S a4s = new A4S(topology, new EvaluatedMetrics(Map.of(), Map.of()));
 
         Map<JobVertexID, Integer> parallelismForVertex = new HashMap<>();
         Map<JobVertexID, MemoryParallelismCurve> mpcs = Map.of();

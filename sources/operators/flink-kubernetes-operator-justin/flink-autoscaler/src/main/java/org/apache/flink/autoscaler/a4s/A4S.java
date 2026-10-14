@@ -20,8 +20,6 @@ package org.apache.flink.autoscaler.a4s;
 import lombok.Getter;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.autoscaler.config.AutoScalerOptions;
-import org.apache.flink.autoscaler.metrics.ScalingMetric;
-import org.apache.flink.autoscaler.ScalingSummary;
 import org.apache.flink.autoscaler.metrics.EvaluatedMetrics;
 import org.apache.flink.autoscaler.topology.JobTopology;
 import org.apache.flink.configuration.Configuration;
@@ -46,15 +44,9 @@ public class A4S {
 
     private final List<JobVertexID> operators;
 
-    private final Map<JobVertexID, ScalingSummary> scalingSummaries;
-
-    public A4S(
-        JobTopology jobTopology, 
-        EvaluatedMetrics evaluatedMetrics, 
-        Map<JobVertexID, ScalingSummary> scalingSummaries) {
+    public A4S(JobTopology jobTopology, EvaluatedMetrics evaluatedMetrics) {
         this.evaluatedMetrics = evaluatedMetrics;
         this.operators = jobTopology.getVerticesInTopologicalOrder();
-        this.scalingSummaries = scalingSummaries;
     }
 
     public static class Decision {
@@ -82,19 +74,10 @@ public class A4S {
      */
     public Map<JobVertexID, Decision> makeDecision(Configuration conf) {
         Map<JobVertexID, MemoryParallelismCurve> mpcs = this.evaluatedMetrics.getMemoryParallelismCurves();
-        Map<JobVertexID, Integer> parallelismForVertex = operators.
-            stream().collect(Collectors.toMap(
-                operator -> operator,
-                operator -> 
-                    Optional.ofNullable(scalingSummaries.get(operator)).
-                        map(ScalingSummary::getNewParallelism).orElseGet(() -> {
-                        return (int) evaluatedMetrics.
-                            getVertexMetrics().
-                            get(operator).
-                            get(ScalingMetric.PARALLELISM).
-                            getCurrent();
-                    })
-        ));
+        // Alg 1: every stateful operator starts at Pmin (least IO, most memory)
+        Map<JobVertexID, Integer> parallelismForVertex =
+                mpcs.entrySet().stream()
+                        .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getMinParallelism()));
         
         
         double maxManagedMemoryMB = 600 - conf.get(AutoScalerOptions.A4S_MEMORY_BASE_MB);
@@ -138,7 +121,7 @@ public class A4S {
                 continue;
             }
 
-            int parallelism = Math.max(parallelismForVertex.get(operator), mpc.getMinParallelism());
+            int parallelism = parallelismForVertex.get(operator);
             double memoryMB = mpc.getMemoryMbForParallelism(parallelism).orElseThrow(() -> new IllegalStateException("No memory for parallelism " + parallelism + " found for operator " + operator));
 
             if (memoryMB > maxManagedMemoryMB) {
@@ -165,12 +148,11 @@ public class A4S {
         JobVertexID minMemoryDiffOperator = null;
 
         for (JobVertexID operator : operators) {
-            int parallelism = parallelismForVertex.get(operator);
             MemoryParallelismCurve mpc = mpcs.get(operator);
-
             if (mpc == null) {
                 continue;
             }
+            int parallelism = parallelismForVertex.get(operator);
 
             if (parallelism + 1 > mpc.getMaxParallelism()) {
                 continue;
