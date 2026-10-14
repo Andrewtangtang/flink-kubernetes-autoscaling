@@ -50,7 +50,6 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
 
@@ -177,21 +176,7 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
                 A4S a4s = new A4S(jobTopology, evaluatedMetrics);
                 Map<JobVertexID, Decision> decisions = a4s.makeDecision(conf);
 
-                boolean a4sManagedMemoryOverrideEnabled =
-                conf.get(A4S_ENABLED) && conf.get(A4S_MANAGED_MEMORY_OVERRIDE_ENABLED);
-                double a4sManagedMemoryOverrideMb = conf.get(A4S_MANAGED_MEMORY_OVERRIDE_MB);
-                double a4sMemoryBaseMb = conf.get(A4S_MEMORY_BASE_MB);
-                
-                // piggy-back off of justin's scaling algorithm for now
-                currentScalingConf.getScaling().forEach((id, information) -> {
-                    information.setParallelism(Optional.ofNullable(decisions.get(id)).map(Decision::getParallelism).orElse(information.getParallelism()));
-                    double memoryMb = Optional.ofNullable(decisions.get(id)).map(Decision::getMemoryMB).orElse(0.0);
-                    information.setManagedMemoryMB(memoryMb + a4sMemoryBaseMb);
-                    if (a4sManagedMemoryOverrideEnabled) {
-                        information.setManagedMemoryMB(a4sManagedMemoryOverrideMb);
-                    }
-                    LOG.debug("A4S: Vertex {} has parallelism {} and memory {}MB", id, information.getParallelism(), information.getManagedMemoryMB());
-                });
+                applyA4SDecisions(currentScalingConf, decisions, evaluatedMetrics, conf);
             } else {
                 policy(context, currentScalingConf, conf);
             }
@@ -641,6 +626,41 @@ public class ScalingExecutor<KEY, Context extends JobAutoScalerContext<KEY>> {
                     .setNetworkMemoryMB(39)
                     .build();
         }
+    }
+
+    @VisibleForTesting
+    static void applyA4SDecisions(
+            ScalingConfigurations.ScalingConfiguration currentScalingConf,
+            Map<JobVertexID, Decision> decisions,
+            EvaluatedMetrics evaluatedMetrics,
+            Configuration conf) {
+        boolean a4sManagedMemoryOverrideEnabled = conf.get(A4S_MANAGED_MEMORY_OVERRIDE_ENABLED);
+        double a4sManagedMemoryOverrideMb = conf.get(A4S_MANAGED_MEMORY_OVERRIDE_MB);
+        double a4sMemoryBaseMb = conf.get(A4S_MEMORY_BASE_MB);
+
+        // piggy-back off of justin's scaling algorithm for now
+        currentScalingConf.getScaling().forEach((id, information) -> {
+            Decision decision = decisions.get(id);
+            if (decision != null) {
+                information.setParallelism(decision.getParallelism());
+                information.setManagedMemoryMB(decision.getMemoryMB() + a4sMemoryBaseMb);
+            } else if (!isStateful(evaluatedMetrics, id)) {
+                information.setManagedMemoryMB(a4sMemoryBaseMb);
+            } else {
+                // No MRC or no feasible P: keep the memory carried over from the last period
+                LOG.warn("A4S: No decision for stateful vertex {}, keeping managed memory {}MB", id, information.getManagedMemoryMB());
+            }
+            if (a4sManagedMemoryOverrideEnabled) {
+                information.setManagedMemoryMB(a4sManagedMemoryOverrideMb);
+            }
+            LOG.debug("A4S: Vertex {} has parallelism {} and memory {}MB", id, information.getParallelism(), information.getManagedMemoryMB());
+        });
+    }
+
+    /** Same signal the collector uses: a vertex with RocksDB metrics gets a cache hit rate. */
+    private static boolean isStateful(EvaluatedMetrics evaluatedMetrics, JobVertexID id) {
+        var metrics = evaluatedMetrics.getVertexMetrics().get(id);
+        return metrics != null && metrics.containsKey(ScalingMetric.ROCKS_DB_BLOCK_CACHE_HIT_RATE);
     }
 
     /**

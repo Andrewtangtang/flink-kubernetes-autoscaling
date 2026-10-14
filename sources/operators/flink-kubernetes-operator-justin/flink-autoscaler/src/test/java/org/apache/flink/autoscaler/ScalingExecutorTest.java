@@ -18,6 +18,7 @@
 package org.apache.flink.autoscaler;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.autoscaler.a4s.A4S;
 import org.apache.flink.autoscaler.config.AutoScalerOptions;
 import org.apache.flink.autoscaler.event.TestingEventCollector;
 import org.apache.flink.autoscaler.metrics.EvaluatedMetrics;
@@ -907,5 +908,42 @@ public class ScalingExecutorTest {
                         Collectors.toMap(
                                 e -> JobVertexID.fromHexString(e.getKey()),
                                 e -> Integer.valueOf(e.getValue())));
+    }
+
+    @Test
+    public void testA4SKeepsMemoryOfStatefulVertexWithoutDecision() {
+        var jobId = new JobID();
+        var decided = new JobVertexID();
+        var undecided = new JobVertexID();
+        var stateless = new JobVertexID();
+        Map<ScalingMetric, EvaluatedScalingMetric> statefulMetrics =
+                Map.of(
+                        ScalingMetric.TRUE_PROCESSING_RATE, EvaluatedScalingMetric.avg(10),
+                        ScalingMetric.PARALLELISM, EvaluatedScalingMetric.of(2),
+                        ScalingMetric.ROCKS_DB_BLOCK_CACHE_HIT_RATE, EvaluatedScalingMetric.avg(0));
+        Map<ScalingMetric, EvaluatedScalingMetric> statelessMetrics =
+                Map.of(
+                        ScalingMetric.TRUE_PROCESSING_RATE, EvaluatedScalingMetric.avg(10),
+                        ScalingMetric.PARALLELISM, EvaluatedScalingMetric.of(2));
+        var vertexMetrics =
+                Map.of(decided, statefulMetrics, undecided, statefulMetrics, stateless, statelessMetrics);
+        var evaluated = new EvaluatedMetrics(vertexMetrics, Map.of());
+        var conf = new Configuration();
+
+        var configurations = new ScalingConfigurations();
+        configurations
+                .setCurrentConfiguration(jobId, vertexMetrics, Map.of(), 0)
+                .getFromJobVertexId(undecided)
+                .setManagedMemoryMB(300.0);
+        // The next period carries the previous managed memory over
+        var current = configurations.setCurrentConfiguration(jobId, vertexMetrics, Map.of(), 1);
+
+        ScalingExecutor.applyA4SDecisions(
+                current, Map.of(decided, new A4S.Decision(4, 120.0)), evaluated, conf);
+
+        assertEquals(4, current.getFromJobVertexId(decided).getParallelism());
+        assertEquals(120.0, current.getFromJobVertexId(decided).getManagedMemoryMB());
+        assertEquals(300.0, current.getFromJobVertexId(undecided).getManagedMemoryMB());
+        assertEquals(0.0, current.getFromJobVertexId(stateless).getManagedMemoryMB());
     }
 }

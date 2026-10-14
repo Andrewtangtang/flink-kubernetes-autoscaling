@@ -159,6 +159,7 @@ public class ScalingConfigurations {
                                    previousConfiguration.getFromJobVertexId(id);
                            if (previousInformation != null) {
                                information.setMemoryLevel(previousInformation.getMemoryLevel());
+                               information.setManagedMemoryMB(previousInformation.getManagedMemoryMB());
                            }
                        }
                        scaling.put(id, information);
