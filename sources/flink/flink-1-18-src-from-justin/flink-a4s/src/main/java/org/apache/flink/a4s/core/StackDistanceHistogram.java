@@ -13,6 +13,7 @@ import javax.annotation.Nullable;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Stack distance histogram with fixed-order bucket counts.
@@ -280,6 +281,39 @@ public class StackDistanceHistogram implements Serializable {
                 counts, completeMisses, vertexParallelism, 1L, header.getBinBytes(), header);
     }
 
+    /**
+     * The SHARDS counts accumulated since {@code baseline}, an earlier merged snapshot of the same
+     * vertex. Empty when the caches were recreated in between (a counter went down or the
+     * parallelism changed), since the difference would then be meaningless.
+     */
+    public Optional<StackDistanceHistogram> minusShards(StackDistanceHistogram baseline) {
+        if (shards == null || baseline.shards == null) {
+            throw new IllegalArgumentException("minusShards needs two SHARDS histograms");
+        }
+        if (numPartitions != baseline.numPartitions
+                || bucketCounts.length < baseline.bucketCounts.length
+                || completeMisses < baseline.completeMisses
+                || shards.totalRefs < baseline.shards.totalRefs
+                || shards.sampledRefs < baseline.shards.sampledRefs) {
+            return Optional.empty();
+        }
+        long[] counts = Arrays.copyOf(bucketCounts, bucketCounts.length);
+        for (int i = 0; i < baseline.bucketCounts.length; i++) {
+            counts[i] -= baseline.bucketCounts[i];
+            if (counts[i] < 0L) {
+                return Optional.empty();
+            }
+        }
+        return Optional.of(
+                new StackDistanceHistogram(
+                        counts,
+                        completeMisses - baseline.completeMisses,
+                        numPartitions,
+                        bucketSizeScaling,
+                        cacheItemSizeBytes,
+                        shards.minus(baseline.shards)));
+    }
+
     public long getTotalFrequency() {
         long total = 0L;
         for (long count : this.bucketCounts) {
@@ -369,6 +403,21 @@ public class StackDistanceHistogram implements Serializable {
                     raw[7],
                     raw[8],
                     raw[9]);
+        }
+
+        /** Cumulative counters minus {@code baseline}'s; gauges (tracked*) stay current. */
+        ShardsHeader minus(ShardsHeader baseline) {
+            return new ShardsHeader(
+                    samplingRate,
+                    hashSeed,
+                    binBytes,
+                    maxDistanceBytes,
+                    totalRefs - baseline.totalRefs,
+                    sampledRefs - baseline.sampledRefs,
+                    evictedByCap - baseline.evictedByCap,
+                    trackedEntries,
+                    trackedBytes,
+                    estimatorNanos - baseline.estimatorNanos);
         }
 
         /** Sums the counters of two headers with the same estimator configuration. */

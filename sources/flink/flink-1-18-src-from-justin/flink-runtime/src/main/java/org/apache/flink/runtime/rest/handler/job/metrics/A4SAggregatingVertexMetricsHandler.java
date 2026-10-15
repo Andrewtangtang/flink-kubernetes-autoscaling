@@ -120,9 +120,9 @@ public class A4SAggregatingVertexMetricsHandler
             AccessExecutionGraph graph) {
         try {
             int parallelism = graph.getJobVertex(vertexID).getParallelism();
+            StackDistanceHistogram merged = StackDistanceHistogram.mergeShards(histograms, parallelism);
             return new A4SAggregatedMetricsResponseBody(
-                    MissRateCurve.fromStackDistanceHistogram(
-                            StackDistanceHistogram.mergeShards(histograms, parallelism)));
+                    MissRateCurve.fromStackDistanceHistogram(merged), merged);
         } catch (Exception e) {
             throw handlerFailure(jobId, vertexID, e);
         }

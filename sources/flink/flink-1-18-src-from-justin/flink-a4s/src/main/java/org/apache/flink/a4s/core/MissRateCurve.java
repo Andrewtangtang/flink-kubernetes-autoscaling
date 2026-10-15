@@ -68,7 +68,7 @@ public class MissRateCurve {
         }
 
         if (histogram.getShards() != null) {
-            return fromShardsHistogram(histogram, totalFrequency);
+            return fromShardsHistogram(histogram, false);
         }
 
         List<Point> mrc = new ArrayList<>();
@@ -92,20 +92,32 @@ public class MissRateCurve {
 
     /**
      * SHARDS (v2): bins 0..i are the sampled hits at per-task cache size (i + 1) * binBytes; the
-     * infinite bin counts as a miss at every size, so the denominator is all sampled references.
-     * The operator-level point is MRC_operator(m * P) = MRC_task(m), with P the vertex parallelism
-     * carried in {@code numPartitions}.
+     * infinite bin counts as a miss at every size. The operator-level point is
+     * MRC_operator(m * P) = MRC_task(m), with P the vertex parallelism carried in {@code
+     * numPartitions}.
+     *
+     * <p>Plain: miss = 1 - hits / Ns, with Ns the sampled references. With {@code adjust}
+     * (SHARDS_adj, Waldspurger et al. FAST'15): the shortfall R * N - Ns of the sample against its
+     * expected size is credited as hits at the smallest distance, which gives miss = (Ns - hits) /
+     * (R * N) with N the references the estimator saw, clamped to [0, 1].
      */
-    private static MissRateCurve fromShardsHistogram(
-            StackDistanceHistogram histogram, long sampledRefs) {
-        long binBytes = histogram.getShards().getBinBytes();
+    public static MissRateCurve fromShardsHistogram(
+            StackDistanceHistogram histogram, boolean adjust) {
+        StackDistanceHistogram.ShardsHeader header = histogram.getShards();
+        long sampledRefs = histogram.getTotalFrequency();
+        double denominator =
+                adjust ? header.getSamplingRate() * header.getTotalRefs() : sampledRefs;
+        if (sampledRefs == 0L || denominator <= 0.0) {
+            return new MissRateCurve(Collections.emptyList());
+        }
+        long binBytes = header.getBinBytes();
         int parallelism = histogram.getNumPartitions();
         List<Point> mrc = new ArrayList<>(histogram.getNumBuckets());
         long hits = 0L;
         for (int i = 0; i < histogram.getNumBuckets(); i++) {
             hits += histogram.getFrequency(i);
-            double missRate = 1.0 - (double) hits / sampledRefs;
-            mrc.add(new Point((i + 1L) * binBytes * parallelism, missRate));
+            double missRate = (sampledRefs - hits) / denominator;
+            mrc.add(new Point((i + 1L) * binBytes * parallelism, Math.max(0.0, Math.min(1.0, missRate))));
         }
         return new MissRateCurve(mrc);
     }

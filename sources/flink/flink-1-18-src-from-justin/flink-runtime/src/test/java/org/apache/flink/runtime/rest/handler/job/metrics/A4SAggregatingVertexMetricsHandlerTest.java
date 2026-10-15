@@ -61,6 +61,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.closeTo;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -159,6 +160,7 @@ public class A4SAggregatingVertexMetricsHandlerTest extends TestLogger {
                         .get();
 
         MissRateCurve curve = response.getScaledMrc();
+        assertThat(response.getMergedHistogram(), nullValue());
         assertThat(curve.getPoints(), hasSize(3));
         assertThat(curve.getPoints().get(0).getCacheSizeBytes(), equalTo(8192L));
         assertThat(curve.getPoints().get(0).getMissRate(), closeTo(0.5, 1.0e-9));
@@ -307,13 +309,15 @@ public class A4SAggregatingVertexMetricsHandlerTest extends TestLogger {
         when(restfulGateway.requestJob(eq(jobId), any()))
                 .thenReturn(CompletableFuture.completedFuture(graph));
 
-        MissRateCurve curve =
+        A4SAggregatedMetricsResponseBody response =
                 handler.handleRequest(
                                 createRequest(jobId.toString(), jobVertexId.toString()),
                                 restfulGateway)
-                        .get()
-                        .getScaledMrc();
+                        .get();
+        MissRateCurve curve = response.getScaledMrc();
 
+        assertThat(response.getMergedHistogram().getNumPartitions(), equalTo(3));
+        assertThat(response.getMergedHistogram().getTotalFrequency(), equalTo(10L));
         assertThat(curve.getPoints(), hasSize(2));
         assertThat(curve.getPoints().get(0).getCacheSizeBytes(), equalTo(3L << 20));
         assertThat(curve.getPoints().get(0).getMissRate(), closeTo(0.4, 1.0e-9));

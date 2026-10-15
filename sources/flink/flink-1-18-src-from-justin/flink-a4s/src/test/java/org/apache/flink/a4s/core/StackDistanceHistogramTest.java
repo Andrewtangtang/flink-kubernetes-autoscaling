@@ -5,7 +5,9 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -296,5 +298,29 @@ public class StackDistanceHistogramTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> StackDistanceHistogram.mergeShards(List.of(shards, shards), 1));
+    }
+
+    @Test
+    void testMinusShards_subtractsCountersAndDetectsResets() {
+        StackDistanceHistogram baseline =
+                StackDistanceHistogram.mergeShards(
+                        List.of(StackDistanceHistogram.fromShardsMrcArray(shardsArray(1000L, 4L, 3L, 2L, 1L))), 2);
+        StackDistanceHistogram current =
+                StackDistanceHistogram.mergeShards(
+                        List.of(StackDistanceHistogram.fromShardsMrcArray(shardsArray(3000L, 6L, 5L, 4L, 3L))), 2);
+
+        StackDistanceHistogram delta = current.minusShards(baseline).get();
+        assertArrayEquals(new long[] {2L, 2L, 2L}, delta.getBucketCounts());
+        assertEquals(2L, delta.getCompleteMisses());
+        assertEquals(2, delta.getNumPartitions());
+        assertEquals(2000L, delta.getShards().getTotalRefs());
+        assertEquals(8L, delta.getShards().getSampledRefs());
+
+        // Caches recreated (counters went down) or parallelism changed: no meaningful delta
+        assertFalse(baseline.minusShards(current).isPresent());
+        StackDistanceHistogram rescaled =
+                StackDistanceHistogram.mergeShards(
+                        List.of(StackDistanceHistogram.fromShardsMrcArray(shardsArray(3000L, 6L, 5L, 4L, 3L))), 3);
+        assertFalse(rescaled.minusShards(baseline).isPresent());
     }
 }

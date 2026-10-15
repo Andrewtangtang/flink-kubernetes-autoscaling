@@ -19,8 +19,11 @@
 package org.apache.flink.runtime.rest.messages.job.metrics;
 
 import org.apache.flink.a4s.core.MissRateCurve;
+import org.apache.flink.a4s.core.StackDistanceHistogram;
 import org.apache.flink.runtime.rest.messages.RestResponseMarshallingTestBase;
 import org.apache.flink.runtime.rest.util.RestMapperUtils;
+
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.junit.Test;
 
@@ -30,6 +33,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 
 /** Tests for {@link A4SAggregatedMetricsResponseBody}. */
 public class A4SAggregatedMetricsResponseBodyTest
@@ -64,5 +68,31 @@ public class A4SAggregatedMetricsResponseBodyTest
                         .writeValueAsString(getTestResponseInstance());
         assertThat(json, containsString("\"scaledMrc\""));
         assertThat(json, containsString("\"cacheSizeBytes\""));
+    }
+
+    @Test
+    public void testMergedHistogramRoundTrips() throws Exception {
+        StackDistanceHistogram merged =
+                new StackDistanceHistogram(
+                        new long[] {4L, 3L},
+                        1L,
+                        2,
+                        1L,
+                        1L << 20,
+                        new StackDistanceHistogram.ShardsHeader(
+                                0.01, 7L, 1L << 20, 3L << 20, 1000L, 8L, 0L, 2L, 3L, 4L));
+        ObjectMapper mapper = RestMapperUtils.getStrictObjectMapper();
+        A4SAggregatedMetricsResponseBody actual =
+                mapper.readValue(
+                        mapper.writeValueAsString(
+                                new A4SAggregatedMetricsResponseBody(
+                                        new MissRateCurve(List.of()), merged)),
+                        A4SAggregatedMetricsResponseBody.class);
+
+        assertThat(actual.getMergedHistogram().getBucketCounts()[1], equalTo(3L));
+        assertThat(actual.getMergedHistogram().getShards().getTotalRefs(), equalTo(1000L));
+        assertThat(
+                mapper.writeValueAsString(getTestResponseInstance()),
+                not(containsString("mergedHistogram")));
     }
 }

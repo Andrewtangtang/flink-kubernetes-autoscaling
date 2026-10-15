@@ -19,10 +19,14 @@
 package org.apache.flink.runtime.rest.messages.job.metrics;
 
 import org.apache.flink.a4s.core.MissRateCurve;
+import org.apache.flink.a4s.core.StackDistanceHistogram;
 import org.apache.flink.runtime.rest.messages.ResponseBody;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonInclude;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
+
+import javax.annotation.Nullable;
 
 import java.util.Collections;
 
@@ -30,17 +34,36 @@ import java.util.Collections;
 public class A4SAggregatedMetricsResponseBody implements ResponseBody {
 
     public static final String FIELD_NAME_SCALED_MRC = "scaledMrc";
+    public static final String FIELD_NAME_MERGED_HISTOGRAM = "mergedHistogram";
 
     @JsonProperty(FIELD_NAME_SCALED_MRC)
     private final MissRateCurve scaledMrc;
 
+    /** SHARDS only: the cumulative vertex histogram, so a client can window and adjust it. */
+    @JsonProperty(FIELD_NAME_MERGED_HISTOGRAM)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @Nullable
+    private final StackDistanceHistogram mergedHistogram;
+
+    public A4SAggregatedMetricsResponseBody(MissRateCurve scaledMrc) {
+        this(scaledMrc, null);
+    }
+
     @JsonCreator
     public A4SAggregatedMetricsResponseBody(
-            @JsonProperty(FIELD_NAME_SCALED_MRC) MissRateCurve scaledMrc) {
+            @JsonProperty(FIELD_NAME_SCALED_MRC) MissRateCurve scaledMrc,
+            @JsonProperty(FIELD_NAME_MERGED_HISTOGRAM) @Nullable
+                    StackDistanceHistogram mergedHistogram) {
         this.scaledMrc = scaledMrc == null ? new MissRateCurve(Collections.emptyList()) : scaledMrc;
+        this.mergedHistogram = mergedHistogram;
     }
 
     public MissRateCurve getScaledMrc() {
         return scaledMrc;
+    }
+
+    @Nullable
+    public StackDistanceHistogram getMergedHistogram() {
+        return mergedHistogram;
     }
 }

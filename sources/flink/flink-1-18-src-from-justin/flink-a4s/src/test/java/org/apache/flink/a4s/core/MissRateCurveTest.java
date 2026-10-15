@@ -101,4 +101,32 @@ class MissRateCurveTest {
         assertEquals(6 * mib, points.get(2).getCacheSizeBytes());
         assertEquals(0.1, points.get(2).getMissRate(), 1e-12);
     }
+
+    @Test
+    void testShardsAdj_rescalesByExpectedSampleSize() {
+        // 10 sampled refs; R = 0.01. N = 2000 expects 20 samples, N = 400 expects 4.
+        StackDistanceHistogram over =
+                StackDistanceHistogram.fromShardsMrcArray(
+                        StackDistanceHistogramTest.shardsArray(2000L, 4L, 3L, 2L, 1L));
+        List<MissRateCurve.Point> points = MissRateCurve.fromShardsHistogram(over, true).getPoints();
+        assertEquals(0.30, points.get(0).getMissRate(), 1e-12);
+        assertEquals(0.15, points.get(1).getMissRate(), 1e-12);
+        assertEquals(0.05, points.get(2).getMissRate(), 1e-12);
+
+        StackDistanceHistogram under =
+                StackDistanceHistogram.fromShardsMrcArray(
+                        StackDistanceHistogramTest.shardsArray(400L, 4L, 3L, 2L, 1L));
+        points = MissRateCurve.fromShardsHistogram(under, true).getPoints();
+        assertEquals(1.0, points.get(0).getMissRate(), 1e-12);
+        assertEquals(0.75, points.get(1).getMissRate(), 1e-12);
+        assertEquals(0.25, points.get(2).getMissRate(), 1e-12);
+
+        // Expected sample size met: adj equals the plain curve
+        StackDistanceHistogram exact =
+                StackDistanceHistogram.fromShardsMrcArray(
+                        StackDistanceHistogramTest.shardsArray(1000L, 4L, 3L, 2L, 1L));
+        assertEquals(
+                MissRateCurve.fromShardsHistogram(exact, false).getPoints().toString(),
+                MissRateCurve.fromShardsHistogram(exact, true).getPoints().toString());
+    }
 }
