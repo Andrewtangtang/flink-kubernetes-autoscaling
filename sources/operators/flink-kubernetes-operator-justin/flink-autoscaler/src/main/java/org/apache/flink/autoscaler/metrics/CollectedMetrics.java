@@ -20,6 +20,8 @@ package org.apache.flink.autoscaler.metrics;
 import org.apache.flink.a4s.core.MissRateCurve;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnore;
+
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -33,7 +35,11 @@ import java.util.Map;
 public class CollectedMetrics {
     private Map<JobVertexID, Map<ScalingMetric, Double>> vertexMetrics;
     private Map<ScalingMetric, Double> globalMetrics;
-    private Map<JobVertexID, MissRateCurve> missRateCurves;
+
+    // In memory only: the evaluator reads the latest entry, and up to bins-many points per vertex
+    // in every history entry would push the state-store ConfigMap past its size cap, which trims
+    // the metric history until the window can never fill.
+    @JsonIgnore private Map<JobVertexID, MissRateCurve> missRateCurves;
 
     public CollectedMetrics(
             Map<JobVertexID, Map<ScalingMetric, Double>> vertexMetrics,

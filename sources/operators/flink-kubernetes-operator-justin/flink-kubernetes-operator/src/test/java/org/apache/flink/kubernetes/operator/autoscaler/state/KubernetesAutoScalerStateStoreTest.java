@@ -17,6 +17,8 @@
 
 package org.apache.flink.kubernetes.operator.autoscaler.state;
 
+import org.apache.flink.a4s.core.MissRateCurve;
+
 import org.apache.flink.autoscaler.CheckpointRescaleTransaction;
 import org.apache.flink.autoscaler.ScalingSummary;
 import org.apache.flink.autoscaler.metrics.CollectedMetrics;
@@ -36,6 +38,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.SortedMap;
@@ -287,5 +290,30 @@ public class KubernetesAutoScalerStateStoreTest
 
         // Contents should be removed from Kubernetes
         assertThat(configMapStore.getConfigMapFromKubernetes(ctx).getDataReadOnly()).isEmpty();
+    }
+
+    @Test
+    void testMissRateCurvesAreNotPersisted() throws Exception {
+        var vertex = new JobVertexID();
+        var metricHistory = new TreeMap<Instant, CollectedMetrics>();
+        metricHistory.put(
+                Instant.now(),
+                new CollectedMetrics(
+                        Map.of(vertex, Map.of(ScalingMetric.LOAD, 0.5)),
+                        Map.of(),
+                        Map.of(vertex, new MissRateCurve(List.of(new MissRateCurve.Point(1L, 0.5))))));
+
+        stateStore.storeCollectedMetrics(ctx, metricHistory);
+        stateStore.flush(ctx);
+
+        // A fresh store deserializes from the ConfigMap instead of returning the cached object
+        var restored =
+                createPhysicalAutoScalerStateStore()
+                        .getCollectedMetrics(ctx)
+                        .values()
+                        .iterator()
+                        .next();
+        assertThat(restored.getVertexMetrics()).containsKey(vertex);
+        assertThat(restored.getMissRateCurves()).isNull();
     }
 }
