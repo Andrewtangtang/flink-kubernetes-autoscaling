@@ -29,6 +29,8 @@ import org.apache.flink.autoscaler.metrics.MetricNotFoundException;
 import org.apache.flink.autoscaler.metrics.ScalingMetric;
 import org.apache.flink.autoscaler.metrics.ScalingMetrics;
 import org.apache.flink.a4s.core.MissRateCurve;
+import org.apache.flink.a4s.core.StackDistanceHistogram;
+import org.apache.flink.autoscaler.utils.a4s.A4SAggregatedMetricsResponseBody;
 import org.apache.flink.autoscaler.state.AutoScalerStateStore;
 import org.apache.flink.autoscaler.topology.IOMetrics;
 import org.apache.flink.autoscaler.topology.JobTopology;
@@ -85,6 +87,8 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
     private final Map<KEY, SortedMap<Instant, CollectedMetrics>> histories =
             new ConcurrentHashMap<>();
     protected final Map<KEY, Boolean> jobsWithGcMetrics = new ConcurrentHashMap<KEY, Boolean>();
+    private final Map<KEY, Map<JobVertexID, StackDistanceHistogram>> mrcBaselines =
+            new ConcurrentHashMap<>();
 
     private Clock clock = Clock.systemDefaultZone();
 
@@ -135,7 +139,11 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
         var collectedVertexMetrics = queryAllAggregatedMetrics(ctx, filteredVertexMetricNames);
         var collectedMissRateCurves =
                 conf.get(AutoScalerOptions.A4S_ENABLED)
-                        ? queryAllMissRateCurves(ctx, filteredVertexMetricNames.keySet())
+                        ? windowMissRateCurves(
+                                jobKey,
+                                queryAllA4SMetrics(ctx, filteredVertexMetricNames.keySet()),
+                                isStabilizing,
+                                conf.get(AutoScalerOptions.A4S_SHARDS_ADJ_ENABLED))
                         : Map.<JobVertexID, MissRateCurve>of();
 
         var collectedJmMetrics = queryJmMetrics(ctx);
@@ -557,9 +565,49 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
                     Context ctx,
                     Map<JobVertexID, Map<String, FlinkMetric>> filteredVertexMetricNames);
 
-    protected Map<JobVertexID, MissRateCurve> queryAllMissRateCurves(
+    protected Map<JobVertexID, A4SAggregatedMetricsResponseBody> queryAllA4SMetrics(
             Context ctx, Collection<JobVertexID> jobVertexIds) {
         return Collections.emptyMap();
+    }
+
+    /**
+     * Thesis-style window for SHARDS: the MRC covers what happened since stabilization ended. Each
+     * collection while stabilizing (which follows every rescale, since the RUNNING timestamp
+     * advances) snapshots the cumulative merged histogram as the baseline; afterwards the curve is
+     * built from current minus baseline. A cache reset seen outside stabilization restarts the
+     * window. QuickMRC responses carry no histogram and pass through unchanged.
+     */
+    @VisibleForTesting
+    Map<JobVertexID, MissRateCurve> windowMissRateCurves(
+            KEY jobKey,
+            Map<JobVertexID, A4SAggregatedMetricsResponseBody> responses,
+            boolean isStabilizing,
+            boolean shardsAdj) {
+        var baselines = mrcBaselines.computeIfAbsent(jobKey, k -> new ConcurrentHashMap<>());
+        var curves = new HashMap<JobVertexID, MissRateCurve>();
+        responses.forEach(
+                (vertex, response) -> {
+                    var current = response.getMergedHistogram();
+                    if (current == null) {
+                        curves.put(vertex, response.getScaledMrc());
+                        return;
+                    }
+                    var baseline = baselines.get(vertex);
+                    var window =
+                            isStabilizing || baseline == null
+                                    ? Optional.<StackDistanceHistogram>empty()
+                                    : current.minusShards(baseline);
+                    if (window.isEmpty()) {
+                        // ponytail: an operator restart also lands here and loses one interval
+                        baselines.put(vertex, current);
+                        return;
+                    }
+                    var curve = MissRateCurve.fromShardsHistogram(window.get(), shardsAdj);
+                    if (!curve.getPoints().isEmpty()) {
+                        curves.put(vertex, curve);
+                    }
+                });
+        return curves;
     }
 
     public JobDetailsInfo getJobDetailsInfo(
@@ -573,6 +621,7 @@ public abstract class ScalingMetricCollector<KEY, Context extends JobAutoScalerC
 
     public void cleanup(KEY jobKey) {
         histories.remove(jobKey);
+        mrcBaselines.remove(jobKey);
         availableVertexMetricNames.remove(jobKey);
         jobsWithGcMetrics.remove(jobKey);
     }

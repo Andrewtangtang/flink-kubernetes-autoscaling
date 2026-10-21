@@ -509,6 +509,15 @@ public class AutoScalerOptions {
                     .withDescription(
                             "Largest managed memory (in MB, including a4s.memory-base.mb) A4S may give one task slot.");
 
+    public static final ConfigOption<Boolean> A4S_SHARDS_ADJ_ENABLED =
+            autoScalerConfig("a4s.shards-adj.enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Apply SHARDS_adj to SHARDS miss-rate curves: normalize by the expected sample "
+                                    + "size R * N instead of the actual one, which corrects hot blocks over- or "
+                                    + "under-represented by spatial sampling.");
+
     public static final ConfigOption<Boolean> A4S_MANAGED_MEMORY_OVERRIDE_ENABLED =
             autoScalerConfig("a4s.managed-memory-override.enabled")
                     .booleanType()

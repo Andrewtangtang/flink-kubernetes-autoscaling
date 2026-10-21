@@ -20,6 +20,7 @@ package org.apache.flink.autoscaler;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.a4s.core.MissRateCurve;
+import org.apache.flink.a4s.core.StackDistanceHistogram;
 import org.apache.flink.autoscaler.utils.a4s.A4SAggregatedMetricsResponseBody;
 import org.apache.flink.autoscaler.utils.a4s.A4SAggregatedVertexMetricsHeaders;
 import org.apache.flink.autoscaler.metrics.FlinkMetric;
@@ -304,7 +305,7 @@ class RestApiMetricsCollectorTest {
     }
 
     @Test
-    void testQueryVertexMissRateCurve() throws Exception {
+    void testQueryVertexA4SMetrics() throws Exception {
         var conf = new Configuration();
         MissRateCurve mrc = new MissRateCurve(List.of(
                         new MissRateCurve.Point(1048576L, 0.5),
@@ -342,7 +343,7 @@ class RestApiMetricsCollectorTest {
                         () -> client);
 
         var collector = new RestApiMetricsCollector<JobID, JobAutoScalerContext<JobID>>();
-        var curve = collector.queryVertexMissRateCurve(context, jobID, new JobVertexID());
+        var curve = collector.queryVertexA4SMetrics(context, jobID, new JobVertexID()).getScaledMrc();
 
         assertThat(curve.getPoints()).hasSize(2);
         assertThat(curve.getPoints().get(0).getCacheSizeBytes()).isEqualTo(1048576L);
@@ -366,5 +367,69 @@ class RestApiMetricsCollectorTest {
 
     private static void assertMetricValueIs(Metric metricValue, int expected) {
         assertThat(metricValue.getValue()).asInt().isEqualTo(expected);
+    }
+
+    @Test
+    void testShardsWindowStartsAtStabilizationEndAndRestartsOnCacheReset() {
+        var collector = new RestApiMetricsCollector<JobID, JobAutoScalerContext<JobID>>();
+        var job = new JobID();
+        var vertex = new JobVertexID();
+        var quickMrcVertex = new JobVertexID();
+        var quickMrc = new MissRateCurve(List.of(new MissRateCurve.Point(1L, 0.5)));
+
+        // Stabilizing: only the baseline is taken; QuickMRC passes through
+        var curves =
+                collector.windowMissRateCurves(
+                        job,
+                        Map.of(
+                                vertex, shardsResponse(1000L, 4L, 3L, 1L),
+                                quickMrcVertex, new A4SAggregatedMetricsResponseBody(quickMrc)),
+                        true,
+                        false);
+        assertThat(curves).containsOnlyKeys(quickMrcVertex);
+
+        // After stabilization: current minus baseline = bins (2, 1), infinite 1
+        curves =
+                collector.windowMissRateCurves(
+                        job, Map.of(vertex, shardsResponse(1400L, 6L, 4L, 2L)), false, false);
+        assertThat(curves.get(vertex).getPoints().get(0).getMissRate()).isEqualTo(0.5);
+        assertThat(curves.get(vertex).getPoints().get(1).getMissRate()).isEqualTo(0.25);
+
+        // SHARDS_adj over the same window: R * N = 0.01 * 400 = 4 = sampled refs, no change
+        curves =
+                collector.windowMissRateCurves(
+                        job, Map.of(vertex, shardsResponse(1400L, 6L, 4L, 2L)), false, true);
+        assertThat(curves.get(vertex).getPoints().get(1).getMissRate()).isEqualTo(0.25);
+
+        // Caches recreated outside stabilization: restart the window from the new counts
+        curves =
+                collector.windowMissRateCurves(
+                        job, Map.of(vertex, shardsResponse(100L, 1L, 0L, 0L)), false, false);
+        assertThat(curves).isEmpty();
+        curves =
+                collector.windowMissRateCurves(
+                        job, Map.of(vertex, shardsResponse(300L, 2L, 1L, 1L)), false, false);
+        assertThat(curves.get(vertex).getPoints().get(0).getMissRate()).isEqualTo(2.0 / 3);
+
+        // cleanup (called when the RUNNING timestamp advances) drops the baseline
+        collector.cleanup(job);
+        curves =
+                collector.windowMissRateCurves(
+                        job, Map.of(vertex, shardsResponse(400L, 3L, 1L, 1L)), false, false);
+        assertThat(curves).isEmpty();
+    }
+
+    private static A4SAggregatedMetricsResponseBody shardsResponse(
+            long totalRefs, long b0, long b1, long inf) {
+        return new A4SAggregatedMetricsResponseBody(
+                new MissRateCurve(List.of()),
+                new StackDistanceHistogram(
+                        new long[] {b0, b1},
+                        inf,
+                        1,
+                        1L,
+                        1L << 20,
+                        new StackDistanceHistogram.ShardsHeader(
+                                0.01, 0L, 1L << 20, 2L << 20, totalRefs, b0 + b1 + inf, 0L, 0L, 0L, 0L)));
     }
 }
