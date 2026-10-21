@@ -5,8 +5,8 @@
 [submodule "sources/operators/flink-kubernetes-operator-justin"]
 	path = sources/operators/flink-kubernetes-operator-justin
 	url = git@github.com:Andrewtangtang/flink-kubernetes-operator-justin.git
-	branch = producer-pause-checkpoint-rescaling
+	branch = a4s-shards-mrc
 [submodule "sources/libs/frocksdb"]
 	path = sources/libs/frocksdb
-	url = git@github.com:RyanL123/frocksdb.git
-	branch = quickmrc
+	url = git@github.com:Andrewtangtang/frocksdb.git
+	branch = a4s-shards-mrc

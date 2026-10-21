@@ -48,6 +48,8 @@ cmd=(docker build)
 if [[ "${NO_CACHE}" == "true" ]]; then
   cmd+=(--no-cache)
 fi
+# The A4S operator Dockerfile installs flink-a4s from the Flink runtime source first
+cmd+=(--build-context "flink-src=${FLINK_RUNTIME_SOURCE}")
 cmd+=("${OPERATOR_SOURCE}" -t "${OPERATOR_LOCAL}")
 
 echo "Building ${OPERATOR_LOCAL}"
