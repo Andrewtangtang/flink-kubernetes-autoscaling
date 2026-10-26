@@ -41,8 +41,8 @@ case "${EXPERIMENT_PROFILE}:${QUERY}" in
     ;;
 esac
 
-if [[ "${POLICY}" != "justin" && "${POLICY}" != "ds2" ]]; then
-  echo "POLICY must be justin or ds2" >&2
+if [[ "${POLICY}" != "justin" && "${POLICY}" != "ds2" && "${POLICY}" != "a4s" ]]; then
+  echo "POLICY must be justin, ds2, or a4s" >&2
   return 1 2>/dev/null || exit 1
 fi
 
@@ -83,6 +83,13 @@ fi
 export RENDERED_MANIFEST="/tmp/${QUERY}-${EXPERIMENT_PROFILE}-checkpoint-aware-${RUN_ID}.yaml"
 export RUN_RESULTS_DIR="experiments/1729-checkpoint-aware-rescaling/results/${RUN_ID}"
 
+# A4S uses its own images (SHARDS FRocksDB, A4S operator) so building them leaves the
+# DS2/Justin baseline images untouched
+if [[ "${POLICY}" == "a4s" ]]; then
+  export FLINK_RUNTIME_IMAGE_TAG="${FLINK_RUNTIME_IMAGE_TAG:-a4s-shards-mrc}"
+  export FLINK_BENCHMARK_IMAGE_TAG="${FLINK_BENCHMARK_IMAGE_TAG:-a4s-shards-mrc}"
+  export OPERATOR_IMAGE_TAG="${OPERATOR_IMAGE_TAG:-a4s-shards-mrc}"
+fi
 export FLINK_RUNTIME_IMAGE_TAG="${FLINK_RUNTIME_IMAGE_TAG:-benchmark-checkpoint-rescale}"
 export FLINK_BENCHMARK_IMAGE_TAG="${FLINK_BENCHMARK_IMAGE_TAG:-benchmark-checkpoint-rescale}"
 export OPERATOR_IMAGE_TAG="${OPERATOR_IMAGE_TAG:-benchmark-checkpoint-rescale}"
