@@ -39,7 +39,7 @@ export FLINK_RUNTIME_A4S_SOURCE_DIR="${FLINK_RUNTIME_A4S_SOURCE_DIR:-sources/fli
 export DATASTREAM_BENCHMARK_SOURCE_DIR="${DATASTREAM_BENCHMARK_SOURCE_DIR:-sources/benchmarks/nexmark-datastream-benchmarks-from-justin}"
 export NEXMARK_SOURCE_DIR="${NEXMARK_SOURCE_DIR:-sources/benchmarks/nexmark-sql-benchmarks}"
 export ROCKSDB_OPTIONS_SOURCE_DIR="${ROCKSDB_OPTIONS_SOURCE_DIR:-sources/libs/rocksdb-options}"
-export OPERATOR_SOURCE_DIR="${OPERATOR_SOURCE_DIR:-sources/operators/flink-kubernetes-operator-a4s}"
+export OPERATOR_SOURCE_DIR="${OPERATOR_SOURCE_DIR:-sources/operators/flink-kubernetes-operator-justin}"
 export FROCKSDB_SOURCE_DIR="${FROCKSDB_SOURCE_DIR:-sources/libs/frocksdb}"
 
 export FLINK_RUNTIME_SOURCE="${REPO_ROOT}/${FLINK_RUNTIME_SOURCE_DIR}"
