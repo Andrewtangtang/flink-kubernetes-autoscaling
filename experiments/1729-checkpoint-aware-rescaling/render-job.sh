@@ -42,6 +42,8 @@ sed \
   -e "s|__FLINK_BENCHMARK_IMAGE__|${FLINK_BENCHMARK_IMAGE}|g" \
   -e "s|__S3_BUCKET__|${S3_BUCKET:-}|g" \
   -e "s|__KAFKA_BOOTSTRAP__|${KAFKA_BOOTSTRAP:-}|g" \
+  -e "s|__CHECKPOINT_RESCALE__|${CHECKPOINT_RESCALE}|g" \
+  -e "s|__CHECKPOINT_INTERVAL__|${CHECKPOINT_INTERVAL}|g" \
   "${SOURCE_MANIFEST}" > "${TEMP_OUTPUT}"
 
 if grep -Eq '__[A-Z0-9_]+__' "${TEMP_OUTPUT}"; then

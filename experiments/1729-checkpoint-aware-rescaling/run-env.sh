@@ -46,6 +46,22 @@ if [[ "${POLICY}" != "justin" && "${POLICY}" != "ds2" && "${POLICY}" != "a4s" ]]
   return 1 2>/dev/null || exit 1
 fi
 
+# Checkpoint-gated rescaling (fresh checkpoint + producer pause before each rescale). With it
+# off, the operator rescales in place from the latest periodic checkpoint, so the periodic
+# interval is a methodology choice and must be given explicitly.
+export CHECKPOINT_RESCALE="${CHECKPOINT_RESCALE:-true}"
+if [[ "${CHECKPOINT_RESCALE}" == "true" ]]; then
+  export CHECKPOINT_INTERVAL="${CHECKPOINT_INTERVAL:-24h}"
+elif [[ "${CHECKPOINT_RESCALE}" == "false" ]]; then
+  if [[ -z "${CHECKPOINT_INTERVAL:-}" ]]; then
+    echo "CHECKPOINT_INTERVAL must be set when CHECKPOINT_RESCALE=false, for example 1m" >&2
+    return 1 2>/dev/null || exit 1
+  fi
+else
+  echo "CHECKPOINT_RESCALE must be true or false" >&2
+  return 1 2>/dev/null || exit 1
+fi
+
 if [[ -z "${RUN_ID:-}" ]]; then
   echo "RUN_ID must be set explicitly, for example 20260811-q20-justin-integrated-01" >&2
   return 1 2>/dev/null || exit 1
@@ -103,6 +119,7 @@ echo "  runtime=${FLINK_RUNTIME_IMAGE}"
 echo "  benchmark=${FLINK_BENCHMARK_IMAGE}"
 echo "  operator=${OPERATOR_IMAGE}"
 echo "  policy=${POLICY} profile=${EXPERIMENT_PROFILE} run_id=${RUN_ID}"
+echo "  checkpoint_rescale=${CHECKPOINT_RESCALE} checkpoint_interval=${CHECKPOINT_INTERVAL}"
 echo "  storage=${RUN_STORAGE_ROOT}"
 echo "  manifest=${RENDERED_MANIFEST}"
 echo "  workload=${TPS} events/s, ${EVENTS} events, source_share=${SOURCE_EVENT_SHARE}"

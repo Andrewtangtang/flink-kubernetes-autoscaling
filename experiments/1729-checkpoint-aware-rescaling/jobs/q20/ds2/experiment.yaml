@@ -16,8 +16,8 @@ spec:
     job.autoscaler.cache-hit-rate.min.threshold: '0.85'
     job.autoscaler.state-latency.threshold: '1000000.0'
     job.autoscaler.metrics.window: 2m
-    job.autoscaler.checkpoint-rescale.enabled: 'true'
-    job.autoscaler.checkpoint-rescale.producer-pause.enabled: 'true'
+    job.autoscaler.checkpoint-rescale.enabled: '__CHECKPOINT_RESCALE__'
+    job.autoscaler.checkpoint-rescale.producer-pause.enabled: '__CHECKPOINT_RESCALE__'
     job.autoscaler.checkpoint-rescale.producer-pause.timeout: 2m
     job.autoscaler.checkpoint-rescale.checkpoint-timeout: 5m
     job.autoscaler.checkpoint-rescale.restore-timeout: 10m
@@ -30,7 +30,7 @@ spec:
     pipeline.jobvertex-parallelism-overrides: cbc357ccb763df2852fee8c4fc7d55f2:12,6cdc5bb954874d922eaee11a8e7b5dd5:1,8b481b930a189b6b1762a9d95a61ada1:1
     taskmanager.numberOfTaskSlots: '4'
     cluster.evenly-spread-out-slots: 'true'
-    execution.checkpointing.interval: 24h
+    execution.checkpointing.interval: __CHECKPOINT_INTERVAL__
     execution.checkpointing.min-pause: 30s
     execution.checkpointing.timeout: 5m
     execution.checkpointing.max-concurrent-checkpoints: '1'

@@ -6,7 +6,7 @@ spec:
   flinkConfiguration:
     cluster.evenly-spread-out-slots: "true"
     execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
-    execution.checkpointing.interval: 24h
+    execution.checkpointing.interval: __CHECKPOINT_INTERVAL__
     execution.checkpointing.min-pause: 30s
     execution.checkpointing.timeout: 5m
     execution.checkpointing.max-concurrent-checkpoints: "1"
@@ -21,8 +21,8 @@ spec:
     job.autoscaler.justin.enabled: "false"
     job.autoscaler.memory.max-level: "4"
     job.autoscaler.metrics.window: 2m
-    job.autoscaler.checkpoint-rescale.enabled: "true"
-    job.autoscaler.checkpoint-rescale.producer-pause.enabled: "true"
+    job.autoscaler.checkpoint-rescale.enabled: "__CHECKPOINT_RESCALE__"
+    job.autoscaler.checkpoint-rescale.producer-pause.enabled: "__CHECKPOINT_RESCALE__"
     job.autoscaler.checkpoint-rescale.producer-pause.timeout: 2m
     job.autoscaler.checkpoint-rescale.checkpoint-timeout: 5m
     job.autoscaler.checkpoint-rescale.restore-timeout: 10m
