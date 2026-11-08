@@ -1,0 +1,193 @@
+################################################################################
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink
+spec:
+  image: donaschmitz/flink-justin:1.9
+  flinkVersion: v1_18
+  flinkConfiguration:
+    job.autoscaler.enabled: "true"
+    job.autoscaler.justin.enabled: "true"
+    job.autoscaler.stabilization.interval: "1m"
+    job.autoscaler.cache-hit-rate.min.threshold: "0.8"
+    #job.autoscaler.cache-hit-rate.max.threshold: "0.95"
+    job.autoscaler.state-latency.threshold: "2000000.0"
+    #job.autoscaler.memory.tuning.enabled: "true"
+    job.autoscaler.metrics.window: "2m"
+    pipeline.max-parallelism: "24"
+    taskmanager.numberOfTaskSlots: "4"
+    execution.checkpointing.interval: "300m"
+    jobmanager.scheduler: adaptive
+    job.autoscaler.target.utilization: "0.5"
+    job.autoscaler.target.utilization.boundary: "0.3"
+    metrics.reporters: prom
+    metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    #metrics.reporter.prom.port: 9250-9260
+    web.submit.enable: "true"
+    web.cancel.enable: "true"
+    state.backend: "rocksdb"
+    s3.endpoint: "http://minio.manager:9000"
+    s3.path.style.access: "true"
+    s3.access-key: "root"
+    s3.secret-key: "rootroot"
+    state.savepoints.dir: s3://flink/flink-checkpoints
+    state.checkpoints.dir: s3://flink/flink-checkpoints
+    taskmanager.memory.managed.fraction: "0.4"
+    taskmanager.cpu.cores: "4"
+    #taskmanager.memory.task.heap.size: "1530082070b"
+    #taskmanager.memory.task.off-heap.size: "0b"
+    #taskmanager.memory.network.max: "359703515b"
+    #taskmanager.memory.network.min: "359703515b"
+    #taskmanager.memory.managed.size: "1438814063b"
+
+    state.backend.rocksdb.metrics.block-cache-usage: "true"
+    state.backend.rocksdb.metrics.block-cache-hit: "true"
+    state.backend.rocksdb.metrics.block-cache-miss: "true"
+    state.backend.rocksdb.metrics.bytes-read: "true"
+    state.backend.rocksdb.metrics.bytes-written: "true"
+    state.backend.rocksdb.metrics.column-family-as-variable: "true"
+    state.backend.rocksdb.metrics.compaction-pending: "true"
+    state.backend.rocksdb.metrics.compaction-read-bytes: "true"
+    state.backend.rocksdb.metrics.compaction-write-bytes: "true"
+    state.backend.rocksdb.metrics.cur-size-active-mem-table: "true"
+    state.backend.rocksdb.metrics.cur-size-all-mem-tables: "true"
+    state.backend.rocksdb.metrics.estimate-live-data-size: "true"
+    state.backend.rocksdb.metrics.estimate-num-keys: "true"
+    state.backend.rocksdb.metrics.estimate-pending-compaction-bytes: "true"
+    state.backend.rocksdb.metrics.estimate-table-readers-mem: "true"
+    state.backend.rocksdb.metrics.live-sst-files-size: "true"
+    state.backend.rocksdb.metrics.size-all-mem-tables: "true"
+    state.backend.rocksdb.metrics.total-sst-files-size: "true"
+
+    state.backend.latency-track.keyed-state-enabled: "true"
+    state.backend.rocksdb.use-direct-writes: "true"
+    state.backend.rocksdb.use-direct-reads: "true"
+
+  serviceAccount: flink
+  podTemplate:
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: pod-template
+    spec:
+      containers:
+        # Do not change the main container name
+        - name: flink-main-container
+          volumeMounts:
+            - mountPath: /opt/flink/downloads
+              name: downloads
+          ports:
+            - containerPort: 9249
+              name: prom
+      volumes:
+        - name: downloads
+          emptyDir: {}
+  jobManager:
+    resource:
+      memory: "4096m"
+      cpu: 4
+
+    podTemplate:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: job-manager-pod-template
+      spec:
+        # restartPolicy: Never
+        initContainers:
+          # Sample init container for fetching remote artifacts
+          - name: busybox
+            image: busybox:1.36.1
+            volumeMounts:
+              - mountPath: /opt/flink/downloads
+                name: downloads
+            command:
+              - /bin/sh
+              - -c
+              - "wget -O /opt/flink/downloads/job.jar \
+                https://forge.uclouvain.be/DonatienSchmitz/justin/-/raw/main/nexmark/Query8.jar"
+  taskManager:
+    resource:
+      memory: "2048m"
+      cpu: 4
+    podTemplate:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: task-manager-pod-template
+  job:
+    jarURI: local:///opt/flink/downloads/job.jar
+    parallelism: 1
+    upgradeMode: stateless
+    args:
+      - "--auction-srcRate"
+      - "42000"
+      - "--person-srcRate"
+      - "12000"
+      - "--p-auction-source"
+      - "2"
+      - "--p-person-source"
+      - "2"
+      - "--fixedRate"
+      - "true"
+      - "--changingRateInterval"
+      - "180000"
+      - "--changingRateRatio"
+      - "0.65"
+      - "--changingRateSteps"
+      - "2"
+      - "--window-size"
+      - "10"
+      - "--stateless"
+      - "true"
+
+  logConfiguration:
+    "log4j-console.properties": |
+      rootLogger.level = DEBUG
+      rootLogger.appenderRef.file.ref = LogFile
+      rootLogger.appenderRef.console.ref = LogConsole
+      appender.file.name = LogFile
+      appender.file.type = File
+      appender.file.append = false
+      appender.file.fileName = ${sys:log.file}
+      appender.file.layout.type = PatternLayout
+      appender.file.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
+      appender.console.name = LogConsole
+      appender.console.type = CONSOLE
+      appender.console.layout.type = PatternLayout
+      appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
+      logger.akka.name = akka
+      logger.akka.level = INFO
+      logger.kafka.name= org.apache.kafka
+      logger.kafka.level = INFO
+      logger.hadoop.name = org.apache.hadoop
+      logger.hadoop.level = INFO
+      logger.zookeeper.name = org.apache.zookeeper
+      logger.zookeeper.level = INFO
+      logger.netty.name = org.apache.flink.shaded.akka.org.jboss.netty.channel.DefaultChannelPipeline
+      logger.netty.level = OFF
+
+      log4j.logger.org.apache.http.wire = OFF
+      log4j.logger.org.apache.http.headers = OFF
+      logger.http.name = org.apache.http
+      logger.http.level = OFF
+      logger.aws.name = com.amazonaws
+      logger.aws.level = OFF

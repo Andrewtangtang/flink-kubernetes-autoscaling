@@ -1,0 +1,8 @@
+defaultConfiguration:
+  log4j-operator.properties: |+
+    # Flink Operator Logging Overrides
+    rootLogger.level = DEBUG
+  log4j-console.properties: |+
+    # Flink Deployment Logging Overrides
+    rootLogger.level = DEBUG  
+

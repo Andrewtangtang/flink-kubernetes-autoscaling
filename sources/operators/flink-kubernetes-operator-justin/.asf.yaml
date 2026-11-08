@@ -1,0 +1,30 @@
+github:
+  enabled_merge_buttons:
+    squash: true
+    merge: false
+    rebase: true
+  labels:
+    - flink
+    - big-data
+    - java
+  protected_branches:
+    main: {}
+    release-0.1: {}
+    release-1.0: {}
+    release-1.1: {}
+    release-1.2: {}
+    release-1.3: {}
+    release-1.4: {}
+    release-1.5: {}
+    release-1.6: {}
+    release-1.7: {}
+    release-1.8: {}
+    release-1.9: {}
+    release-1.10: {}
+
+notifications:
+  commits:      commits@flink.apache.org
+  issues:       issues@flink.apache.org
+  pullrequests: issues@flink.apache.org
+  jobs:         builds@flink.apache.org
+  jira_options: link label

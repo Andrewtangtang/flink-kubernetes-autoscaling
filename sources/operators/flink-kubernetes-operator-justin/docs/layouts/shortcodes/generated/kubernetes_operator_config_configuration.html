@@ -1,0 +1,444 @@
+<table class="configuration table table-bordered">
+    <thead>
+        <tr>
+            <th class="text-left" style="width: 20%">Key</th>
+            <th class="text-left" style="width: 15%">Default</th>
+            <th class="text-left" style="width: 10%">Type</th>
+            <th class="text-left" style="width: 55%">Description</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><h5>kubernetes.operator.checkpoint.trigger.grace-period</h5></td>
+            <td style="word-wrap: break-word;">1 min</td>
+            <td>Duration</td>
+            <td>The interval before a checkpoint trigger attempt is marked as unsuccessful.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.checkpoint.type</h5></td>
+            <td style="word-wrap: break-word;">FULL</td>
+            <td><p>Enum</p></td>
+            <td>Type of checkpoint.<br /><br />Possible values:<ul><li>"FULL": A comprehensive snapshot, saving the complete state of a data stream.</li><li>"INCREMENTAL": A more efficient, reduced snapshot, saving only the differences in state data since the last checkpoint.</li><li>"UNKNOWN": Only for internal purposes.</li></ul></td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.cluster.health-check.checkpoint-progress.enabled</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Whether to enable checkpoint progress health check for clusters.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.cluster.health-check.checkpoint-progress.window</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>Duration</td>
+            <td>If no checkpoints are completed within the defined time window, the job is considered unhealthy. The minimum window size is `max(checkpointingInterval, checkpointTimeout) * (tolerableCheckpointFailures + 2)`, which also serves as the default value when checkpointing is enabled. For example with checkpoint interval 10 minutes and 0 tolerable failures, the default progress check window will be 20 minutes.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.cluster.health-check.enabled</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Whether to enable health check for clusters.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.cluster.health-check.restarts.threshold</h5></td>
+            <td style="word-wrap: break-word;">64</td>
+            <td>Integer</td>
+            <td>The threshold which is checked against job restart count within a configured window. If the restart count is reaching the threshold then full cluster restart is initiated.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.cluster.health-check.restarts.window</h5></td>
+            <td style="word-wrap: break-word;">2 min</td>
+            <td>Duration</td>
+            <td>The duration of the time window where job restart count measured.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.cluster.resource-view.refresh-interval</h5></td>
+            <td style="word-wrap: break-word;">-1 min</td>
+            <td>Duration</td>
+            <td>How often to retrieve Kubernetes cluster resource usage information. This information is used to avoid running out of cluster resources when scaling up resources. Negative values disable the feature.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.config.cache.size</h5></td>
+            <td style="word-wrap: break-word;">1000</td>
+            <td>Integer</td>
+            <td>Max config cache size.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.config.cache.timeout</h5></td>
+            <td style="word-wrap: break-word;">10 min</td>
+            <td>Duration</td>
+            <td>Expiration time for cached configs.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.deployment.readiness.timeout</h5></td>
+            <td style="word-wrap: break-word;">5 min</td>
+            <td>Duration</td>
+            <td>The timeout for deployments to become ready/stable before being rolled back if rollback is enabled.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.deployment.rollback.enabled</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Whether to enable rolling back failed deployment upgrades.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.dynamic.config.check.interval</h5></td>
+            <td style="word-wrap: break-word;">5 min</td>
+            <td>Duration</td>
+            <td>Time interval for checking config changes.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.dynamic.config.enabled</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Whether to enable on-the-fly config changes through the operator configmap.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.dynamic.namespaces.enabled</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Enables dynamic change of watched/monitored namespaces.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.exception.field.max.length</h5></td>
+            <td style="word-wrap: break-word;">2048</td>
+            <td>Integer</td>
+            <td>Maximum length of each exception field including stack trace to be included in CR status error field.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.exception.label.mapper</h5></td>
+            <td style="word-wrap: break-word;"></td>
+            <td>Map</td>
+            <td>Key-Value pair where key is the REGEX to filter through the exception messages and value is the string to be included in CR status error label field if the REGEX matches. Expected format: headerKey1:headerValue1,headerKey2:headerValue2.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.exception.stacktrace.enabled</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Enable exception stacktrace to be included in CR status error field.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.exception.stacktrace.max.length</h5></td>
+            <td style="word-wrap: break-word;">2048</td>
+            <td>Integer</td>
+            <td>Maximum length of stacktrace to be included in CR status error field.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.exception.throwable.list.max.count</h5></td>
+            <td style="word-wrap: break-word;">2</td>
+            <td>Integer</td>
+            <td>Maximum number of throwable to be included in CR status error field.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.flink.client.cancel.timeout</h5></td>
+            <td style="word-wrap: break-word;">1 min</td>
+            <td>Duration</td>
+            <td>The timeout for the reconciler to wait for flink to cancel job.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.flink.client.timeout</h5></td>
+            <td style="word-wrap: break-word;">10 s</td>
+            <td>Duration</td>
+            <td>The timeout for the observer to wait the flink rest client to return.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.health.canary.resource.timeout</h5></td>
+            <td style="word-wrap: break-word;">1 min</td>
+            <td>Duration</td>
+            <td>Allowed max time between spec update and reconciliation for canary resources.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.health.probe.enabled</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Enables health probe for the kubernetes operator.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.health.probe.port</h5></td>
+            <td style="word-wrap: break-word;">8085</td>
+            <td>Integer</td>
+            <td>The port the health probe will use to expose the status.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.jm-deployment-recovery.enabled</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Whether to enable recovery of missing/deleted jobmanager deployments.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.jm-deployment.shutdown-ttl</h5></td>
+            <td style="word-wrap: break-word;">1 d</td>
+            <td>Duration</td>
+            <td>Time after which jobmanager pods of terminal application deployments are shut down.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.jm-deployment.startup.probe.enabled</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Enable job manager startup probe to allow detecting when the jobmanager could not submit the job.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.job.drain-on-savepoint-deletion</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Indicate whether the job should be drained when stopping with savepoint.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.job.restart.failed</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Whether to restart failed jobs.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.job.savepoint-on-deletion</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Indicate whether a savepoint must be taken when deleting a FlinkDeployment or FlinkSessionJob.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.job.upgrade.ignore-pending-savepoint</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Whether to ignore pending savepoint during job upgrade.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.job.upgrade.inplace-scaling.enabled</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Whether to enable inplace scaling for Flink 1.18+ using the resource requirements API. On failure or earlier Flink versions it falls back to regular full redeployment.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.job.upgrade.last-state-fallback.enabled</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Enables last-state fallback for savepoint upgrade mode. When the job is not running thus savepoint cannot be triggered but HA metadata is available for last state restore the operator can initiate the upgrade process when the flag is enabled.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.job.upgrade.last-state.job-cancel.enabled</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Cancel jobs during last-state upgrade. This config is ignored for session jobs where cancel is the only mechanism to perform this type of upgrade.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.job.upgrade.last-state.max.allowed.checkpoint.age</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>Duration</td>
+            <td>Max allowed checkpoint age for initiating last-state upgrades on running jobs. If a checkpoint is not available within the desired age (and nothing in progress) a savepoint will be triggered.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.label.selector</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Label selector of the custom resources to be watched. Please see https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors for the format supported.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.leader-election.enabled</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Enable leader election for the operator to allow running standby instances.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.leader-election.lease-duration</h5></td>
+            <td style="word-wrap: break-word;">15 s</td>
+            <td>Duration</td>
+            <td>Leader election lease duration.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.leader-election.lease-name</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Leader election lease name, must be unique for leases in the same namespace.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.leader-election.renew-deadline</h5></td>
+            <td style="word-wrap: break-word;">10 s</td>
+            <td>Duration</td>
+            <td>Leader election renew deadline.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.leader-election.retry-period</h5></td>
+            <td style="word-wrap: break-word;">2 s</td>
+            <td>Duration</td>
+            <td>Leader election retry period.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.observer.progress-check.interval</h5></td>
+            <td style="word-wrap: break-word;">10 s</td>
+            <td>Duration</td>
+            <td>The interval for observing status for in-progress operations such as deployment and savepoints.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.observer.rest-ready.delay</h5></td>
+            <td style="word-wrap: break-word;">10 s</td>
+            <td>Duration</td>
+            <td>Final delay before deployment is marked ready after port becomes accessible.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.periodic.checkpoint.interval</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Option to enable automatic checkpoint triggering. Can be specified either as a Duration type (i.e. '10m') or as a cron expression in Quartz format (6 or 7 positions, see http://www.quartz-scheduler.org/documentation/quartz-2.3.0/tutorials/crontrigger.html).The triggering schedule is not guaranteed, checkpoints will be triggered as part of the regular reconcile loop. NOTE: checkpoints are generally managed by Flink. This setting isn't meant to replace Flink's checkpoint settings, but to complement them in special cases. For instance, a full checkpoint might need to be occasionally triggered to break the chain of incremental checkpoints and consolidate the partial incremental files. WARNING: not intended to be used together with the cron-based periodic checkpoint triggering</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.periodic.savepoint.interval</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Option to enable automatic savepoint triggering. Can be specified either as a Duration type (i.e. '10m') or as a cron expression in Quartz format (6 or 7 positions, see http://www.quartz-scheduler.org/documentation/quartz-2.3.0/tutorials/crontrigger.html).The triggering schedule is not guaranteed, savepoints will be triggered as part of the regular reconcile loop. WARNING: not intended to be used together with the cron-based periodic savepoint triggering</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.plugins.listeners.&lt;listener-name&gt;.class</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Custom plugins listener class, 'listener-name' is the name of the plugin listener, and its value is a fully qualified class name.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.pod-template.merge-arrays-by-name</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Configure the array merge behaviour during pod merging. Arrays can be either merged by position or name matching.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.rate-limiter.limit</h5></td>
+            <td style="word-wrap: break-word;">5</td>
+            <td>Integer</td>
+            <td>Max number of reconcile loops triggered within the rate limiter refresh period for each resource. Setting the limit &lt;= 0 disables the limiter.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.rate-limiter.refresh-period</h5></td>
+            <td style="word-wrap: break-word;">15 s</td>
+            <td>Duration</td>
+            <td>Operator rate limiter refresh period for each resource.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.reconcile.interval</h5></td>
+            <td style="word-wrap: break-word;">1 min</td>
+            <td>Duration</td>
+            <td>The interval for the controller to reschedule the reconcile process.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.reconcile.parallelism</h5></td>
+            <td style="word-wrap: break-word;">50</td>
+            <td>Integer</td>
+            <td>The maximum number of threads running the reconciliation loop. Use -1 for infinite.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.resource.cleanup.timeout</h5></td>
+            <td style="word-wrap: break-word;">5 min</td>
+            <td>Duration</td>
+            <td>The timeout for the resource clean up to wait for flink to shutdown cluster.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.resource.deletion.propagation</h5></td>
+            <td style="word-wrap: break-word;">Foreground</td>
+            <td><p>Enum</p></td>
+            <td>JM/TM Deployment deletion propagation.<br /><br />Possible values:<ul><li>"Orphan"</li><li>"Background"</li><li>"Foreground"</li></ul></td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.retry.initial.interval</h5></td>
+            <td style="word-wrap: break-word;">5 s</td>
+            <td>Duration</td>
+            <td>Initial interval of retries on unhandled controller errors.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.retry.interval.multiplier</h5></td>
+            <td style="word-wrap: break-word;">1.5</td>
+            <td>Double</td>
+            <td>Interval multiplier of retries on unhandled controller errors.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.retry.max.attempts</h5></td>
+            <td style="word-wrap: break-word;">15</td>
+            <td>Integer</td>
+            <td>Max attempts of retries on unhandled controller errors.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.retry.max.interval</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>Duration</td>
+            <td>Max interval of retries on unhandled controller errors.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.savepoint.cleanup.enabled</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Whether to enable clean up of savepoint FlinkStateSnapshot resources. Savepoint state will be disposed of as well if the snapshot CR spec is configured as such. For automatic savepoints this can be configured via the kubernetes.operator.savepoint.dispose-on-delete config option.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.savepoint.dispose-on-delete</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Savepoint data for FlinkStateSnapshot resources created by the operator during upgrades and periodic savepoints will be disposed of automatically when the generated Kubernetes resource is deleted.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.savepoint.format.type</h5></td>
+            <td style="word-wrap: break-word;">CANONICAL</td>
+            <td><p>Enum</p></td>
+            <td>Type of the binary format in which a savepoint should be taken.<br /><br />Possible values:<ul><li>"CANONICAL": A canonical, common for all state backends format. It lets you switch state backends.</li><li>"NATIVE": A format specific for the chosen state backend, in its native binary format. Might be faster to take and restore from than the canonical one.</li></ul></td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.savepoint.history.max.age</h5></td>
+            <td style="word-wrap: break-word;">1 d</td>
+            <td>Duration</td>
+            <td>Maximum age for savepoint FlinkStateSnapshot resources to retain. Due to lazy clean-up, the most recent savepoint may live longer than the max age.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.savepoint.history.max.age.threshold</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>Duration</td>
+            <td>Maximum age threshold for FlinkStateSnapshot resources to retain.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.savepoint.history.max.count</h5></td>
+            <td style="word-wrap: break-word;">10</td>
+            <td>Integer</td>
+            <td>Maximum number of savepoint FlinkStateSnapshot resources entries to retain.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.savepoint.history.max.count.threshold</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>Integer</td>
+            <td>Maximum number threshold of savepoint FlinkStateSnapshot resources to retain.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.savepoint.trigger.grace-period</h5></td>
+            <td style="word-wrap: break-word;">1 min</td>
+            <td>Duration</td>
+            <td>The interval before a savepoint trigger attempt is marked as unsuccessful.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.snapshot.resource.enabled</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Create new FlinkStateSnapshot resources for storing snapshots. Disable if you wish to use the deprecated mode and save snapshot results to FlinkDeployment/FlinkSessionJob status fields. The Operator will fallback to legacy mode during runtime if the CRD is not found, even if this value is true.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.startup.stop-on-informer-error</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Whether informer errors should stop operator startup. If false, the startup will ignore recoverable errors, caused for example by RBAC issues and will retry periodically.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.termination.timeout</h5></td>
+            <td style="word-wrap: break-word;">10 s</td>
+            <td>Duration</td>
+            <td>Operator shutdown timeout before reconciliation threads are killed.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.user.artifacts.base.dir</h5></td>
+            <td style="word-wrap: break-word;">"/opt/flink/artifacts"</td>
+            <td>String</td>
+            <td>The base dir to put the session job artifacts.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.user.artifacts.http.header</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>Map</td>
+            <td>Custom HTTP header for HttpArtifactFetcher. The header will be applied when getting the session job artifacts. Expected format: headerKey1:headerValue1,headerKey2:headerValue2.</td>
+        </tr>
+        <tr>
+            <td><h5>kubernetes.operator.watched.namespaces</h5></td>
+            <td style="word-wrap: break-word;">"JOSDK_ALL_NAMESPACES"</td>
+            <td>String</td>
+            <td>Comma separated list of namespaces the operator monitors for custom resources.</td>
+        </tr>
+    </tbody>
+</table>

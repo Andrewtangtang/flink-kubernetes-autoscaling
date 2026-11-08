@@ -2,10 +2,6 @@
 	path = sources/benchmarks/nexmark-sql-benchmarks
 	url = git@github.com:shafinulh/nexmark.git
 	branch = master
-[submodule "sources/operators/flink-kubernetes-operator-justin"]
-	path = sources/operators/flink-kubernetes-operator-justin
-	url = git@github.com:Andrewtangtang/flink-kubernetes-operator-justin.git
-	branch = a4s-shards-mrc
 [submodule "sources/libs/frocksdb"]
 	path = sources/libs/frocksdb
 	url = git@github.com:Andrewtangtang/frocksdb.git

@@ -1,0 +1,72 @@
+<table class="configuration table table-bordered">
+    <thead>
+        <tr>
+            <th class="text-left" style="width: 20%">Key</th>
+            <th class="text-left" style="width: 15%">Default</th>
+            <th class="text-left" style="width: 10%">Type</th>
+            <th class="text-left" style="width: 55%">Description</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><h5>autoscaler.standalone.control-loop.interval</h5></td>
+            <td style="word-wrap: break-word;">10 s</td>
+            <td>Duration</td>
+            <td>The interval of autoscaler standalone control loop.</td>
+        </tr>
+        <tr>
+            <td><h5>autoscaler.standalone.control-loop.parallelism</h5></td>
+            <td style="word-wrap: break-word;">100</td>
+            <td>Integer</td>
+            <td>The parallelism of autoscaler standalone control loop.</td>
+        </tr>
+        <tr>
+            <td><h5>autoscaler.standalone.event-handler.type</h5></td>
+            <td style="word-wrap: break-word;">LOGGING</td>
+            <td><p>Enum</p></td>
+            <td>The autoscaler event handler type.<br /><br />Possible values:<ul><li>"LOGGING": The event handler based on logging.</li><li>"JDBC": The event handler which persists all events in JDBC related database. It's recommended in production.</li></ul></td>
+        </tr>
+        <tr>
+            <td><h5>autoscaler.standalone.fetcher.flink-cluster.host</h5></td>
+            <td style="word-wrap: break-word;">"localhost"</td>
+            <td>String</td>
+            <td>The host name of flink cluster when the flink-cluster fetcher is used.</td>
+        </tr>
+        <tr>
+            <td><h5>autoscaler.standalone.fetcher.flink-cluster.port</h5></td>
+            <td style="word-wrap: break-word;">8081</td>
+            <td>Integer</td>
+            <td>The port of flink cluster when the flink-cluster fetcher is used.</td>
+        </tr>
+        <tr>
+            <td><h5>autoscaler.standalone.jdbc.event-handler.ttl</h5></td>
+            <td style="word-wrap: break-word;">90 d</td>
+            <td>Duration</td>
+            <td>The time to live based on create time for the JDBC event handler records. When the config is set as '0', the ttl strategy for the records would be disabled.</td>
+        </tr>
+        <tr>
+            <td><h5>autoscaler.standalone.jdbc.password-env-variable</h5></td>
+            <td style="word-wrap: break-word;">"JDBC_PWD"</td>
+            <td>String</td>
+            <td>The environment variable name of jdbc password when <code class="highlighter-rouge">autoscaler.standalone.state-store.type</code> or <code class="highlighter-rouge">autoscaler.standalone.event-handler.type</code> has been set to <code class="highlighter-rouge">JDBC</code>. In general, the environment variable name doesn't need to be changed. Users need to export the password using this environment variable.</td>
+        </tr>
+        <tr>
+            <td><h5>autoscaler.standalone.jdbc.url</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>The jdbc url when <code class="highlighter-rouge">autoscaler.standalone.state-store.type</code> or <code class="highlighter-rouge">autoscaler.standalone.event-handler.type</code> has been set to <code class="highlighter-rouge">JDBC</code>, such as: <code class="highlighter-rouge">jdbc:mysql://localhost:3306/flink_autoscaler</code>.<br />This option is required when using JDBC state store or JDBC event handler.</td>
+        </tr>
+        <tr>
+            <td><h5>autoscaler.standalone.jdbc.username</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>The jdbc username when <code class="highlighter-rouge">autoscaler.standalone.state-store.type</code> or <code class="highlighter-rouge">autoscaler.standalone.event-handler.type</code> has been set to <code class="highlighter-rouge">JDBC</code>.</td>
+        </tr>
+        <tr>
+            <td><h5>autoscaler.standalone.state-store.type</h5></td>
+            <td style="word-wrap: break-word;">MEMORY</td>
+            <td><p>Enum</p></td>
+            <td>The autoscaler state store type.<br /><br />Possible values:<ul><li>"MEMORY": The state store based on the Java Heap, the state will be discarded after process restarts.</li><li>"JDBC": The state store which persists its state in JDBC related database. It's recommended in production.</li></ul></td>
+        </tr>
+    </tbody>
+</table>

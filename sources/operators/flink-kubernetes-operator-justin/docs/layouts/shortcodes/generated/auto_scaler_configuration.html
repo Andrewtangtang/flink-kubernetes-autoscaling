@@ -1,0 +1,234 @@
+<table class="configuration table table-bordered">
+    <thead>
+        <tr>
+            <th class="text-left" style="width: 20%">Key</th>
+            <th class="text-left" style="width: 15%">Default</th>
+            <th class="text-left" style="width: 10%">Type</th>
+            <th class="text-left" style="width: 55%">Description</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><h5>job.autoscaler.backlog-processing.lag-threshold</h5></td>
+            <td style="word-wrap: break-word;">5 min</td>
+            <td>Duration</td>
+            <td>Lag threshold which will prevent unnecessary scalings while removing the pending messages responsible for the lag.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.catch-up.duration</h5></td>
+            <td style="word-wrap: break-word;">30 min</td>
+            <td>Duration</td>
+            <td>The target duration for fully processing any backlog after a scaling operation. Set to 0 to disable backlog based scaling.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.enabled</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Enable job autoscaler module.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.excluded.periods</h5></td>
+            <td style="word-wrap: break-word;"></td>
+            <td>List&lt;String&gt;</td>
+            <td>A (semicolon-separated) list of expressions indicate excluded periods during which autoscaling execution is forbidden, the expression consist of two optional subexpressions concatenated with &amp;&amp;, one is cron expression in Quartz format (6 or 7 positions), for example, * * 9-11,14-16 * * ? means exclude from 9:00:00am to 11:59:59am and from 2:00:00pm to 4:59:59pm every day, * * * ? * 2-6 means exclude every weekday, etc.see http://www.quartz-scheduler.org/documentation/quartz-2.3.0/tutorials/crontrigger.html for the usage of cron expression.Caution: in most case cron expression is enough, we introduce the other subexpression: daily expression, because cron can only represent integer hour period without minutes and seconds suffix, daily expression's formation is startTime-endTime, such as 9:30:30-10:50:20, when exclude from 9:30:30-10:50:20 in Monday and Thursday we can express it as 9:30:30-10:50:20 &amp;&amp; * * * ? * 2,5</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.flink.rest-client.timeout</h5></td>
+            <td style="word-wrap: break-word;">10 s</td>
+            <td>Duration</td>
+            <td>The timeout for waiting the flink rest client to return.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.history.max.age</h5></td>
+            <td style="word-wrap: break-word;">1 d</td>
+            <td>Duration</td>
+            <td>Maximum age for past scaling decisions to retain.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.history.max.count</h5></td>
+            <td style="word-wrap: break-word;">3</td>
+            <td>Integer</td>
+            <td>Maximum number of past scaling decisions to retain per vertex.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.memory.gc-pressure.threshold</h5></td>
+            <td style="word-wrap: break-word;">1.0</td>
+            <td>Double</td>
+            <td>Max allowed GC pressure (percentage spent garbage collecting) during scaling operations. Autoscaling will be paused if the GC pressure exceeds this limit.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.memory.heap-usage.threshold</h5></td>
+            <td style="word-wrap: break-word;">1.0</td>
+            <td>Double</td>
+            <td>Max allowed percentage of heap usage during scaling operations. Autoscaling will be paused if the heap usage exceeds this threshold.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.memory.tuning.enabled</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>If enabled, the initial amount of memory specified for TaskManagers will be reduced/increased according to the observed needs.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.memory.tuning.maximize-managed-memory</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>If enabled and managed memory is used (e.g. RocksDB turned on), any reduction of heap, network, or metaspace memory will increase the managed memory.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.memory.tuning.overhead</h5></td>
+            <td style="word-wrap: break-word;">0.2</td>
+            <td>Double</td>
+            <td>Overhead to add to tuning decisions (0-1). This ensures spare capacity and allows the memory to grow beyond the dynamically computed limits, but never beyond the original memory limits.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.memory.tuning.scale-down-compensation.enabled</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>If this option is enabled and memory tuning is enabled, TaskManager memory will be increased when scaling down. This ensures that after applying memory tuning there is sufficient memory when running with fewer TaskManagers.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.metrics.busy-time.aggregator</h5></td>
+            <td style="word-wrap: break-word;">MAX</td>
+            <td><p>Enum</p></td>
+            <td>Metric aggregator to use for busyTime metrics. This affects how true processing/output rate will be computed. Using max allows us to handle jobs with data skew more robustly, while avg may provide better stability when we know that the load distribution is even.<br /><br />Possible values:<ul><li>"AVG"</li><li>"MAX"</li><li>"MIN"</li></ul></td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.metrics.window</h5></td>
+            <td style="word-wrap: break-word;">15 min</td>
+            <td>Duration</td>
+            <td>Scaling metrics aggregation window size.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.observed-true-processing-rate.lag-threshold</h5></td>
+            <td style="word-wrap: break-word;">30 s</td>
+            <td>Duration</td>
+            <td>Lag threshold for enabling observed true processing rate measurements.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.observed-true-processing-rate.min-observations</h5></td>
+            <td style="word-wrap: break-word;">2</td>
+            <td>Integer</td>
+            <td>Minimum nr of observations used when estimating / switching to observed true processing rate.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.observed-true-processing-rate.switch-threshold</h5></td>
+            <td style="word-wrap: break-word;">0.15</td>
+            <td>Double</td>
+            <td>Percentage threshold for switching to observed from busy time based true processing rate if the measurement is off by at least the configured fraction. For example 0.15 means we switch to observed if the busy time based computation is at least 15% higher during catchup.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.quota.cpu</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>Double</td>
+            <td>Quota of the CPU count. When scaling would go beyond this number the the scaling is not going to happen.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.quota.memory</h5></td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>MemorySize</td>
+            <td>Quota of the memory size. When scaling would go beyond this number the the scaling is not going to happen.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.restart.time</h5></td>
+            <td style="word-wrap: break-word;">5 min</td>
+            <td>Duration</td>
+            <td>Expected restart time to be used until the operator can determine it reliably from history.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.restart.time-tracking.enabled</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Whether to use the actual observed rescaling restart times instead of the fixed 'job.autoscaler.restart.time' configuration. If set to true, the maximum restart duration over a number of samples will be used. The value of 'job.autoscaler.restart.time-tracking.limit' will act as an upper bound, and the value of 'job.autoscaler.restart.time' will still be used when there are no rescale samples.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.restart.time-tracking.limit</h5></td>
+            <td style="word-wrap: break-word;">15 min</td>
+            <td>Duration</td>
+            <td>Maximum cap for the observed restart time when 'job.autoscaler.restart.time-tracking.enabled' is set to true.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.scale-down.interval</h5></td>
+            <td style="word-wrap: break-word;">1 h</td>
+            <td>Duration</td>
+            <td>The delay time for scale down to be executed. If it is greater than 0, the scale down will be delayed. Delayed rescale can merge multiple scale downs within `scale-down.interval` into a scale down, thereby reducing the number of rescales. Reducing the frequency of job restarts can improve job availability. Scale down can be executed directly if it's less than or equal 0.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.scale-down.max-factor</h5></td>
+            <td style="word-wrap: break-word;">0.6</td>
+            <td>Double</td>
+            <td>Max scale down factor. 1 means no limit on scale down, 0.6 means job can only be scaled down with 60% of the original parallelism.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.scale-up.max-factor</h5></td>
+            <td style="word-wrap: break-word;">100000.0</td>
+            <td>Double</td>
+            <td>Max scale up factor. 2.0 means job can only be scaled up with 200% of the current parallelism.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.scaling.effectiveness.detection.enabled</h5></td>
+            <td style="word-wrap: break-word;">false</td>
+            <td>Boolean</td>
+            <td>Whether to enable detection of ineffective scaling operations and allowing the autoscaler to block further scale ups.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.scaling.effectiveness.threshold</h5></td>
+            <td style="word-wrap: break-word;">0.1</td>
+            <td>Double</td>
+            <td>Processing rate increase threshold for detecting ineffective scaling threshold. 0.1 means if we do not accomplish at least 10% of the desired capacity increase with scaling, the action is marked ineffective.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.scaling.enabled</h5></td>
+            <td style="word-wrap: break-word;">true</td>
+            <td>Boolean</td>
+            <td>Enable vertex scaling execution by the autoscaler. If disabled, the autoscaler will only collect metrics and evaluate the suggested parallelism for each vertex but will not upgrade the jobs.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.scaling.event.interval</h5></td>
+            <td style="word-wrap: break-word;">30 min</td>
+            <td>Duration</td>
+            <td>Time interval to resend the identical event</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.scaling.key-group.partitions.adjust.mode</h5></td>
+            <td style="word-wrap: break-word;">EVENLY_SPREAD</td>
+            <td><p>Enum</p></td>
+            <td>How to adjust the parallelism of Source vertex or upstream shuffle is keyBy<br /><br />Possible values:<ul><li>"EVENLY_SPREAD": This mode ensures that the parallelism adjustment attempts to evenly distribute data across subtasks. It is particularly effective for source vertices that are aware of partition counts or vertices after 'keyBy' operation. The goal is to have the number of key groups or partitions be divisible by the set parallelism, ensuring even data distribution and reducing data skew.</li><li>"MAXIMIZE_UTILISATION": This model is to maximize resource utilization. In this mode, an attempt is made to set the parallelism that meets the current consumption rate requirements. It is not enforced that the number of key groups or partitions is divisible by the parallelism.</li></ul></td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.stabilization.interval</h5></td>
+            <td style="word-wrap: break-word;">5 min</td>
+            <td>Duration</td>
+            <td>Stabilization period in which no new scaling will be executed</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.target.utilization</h5></td>
+            <td style="word-wrap: break-word;">0.7</td>
+            <td>Double</td>
+            <td>Target vertex utilization</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.target.utilization.boundary</h5></td>
+            <td style="word-wrap: break-word;">0.3</td>
+            <td>Double</td>
+            <td>Target vertex utilization boundary. Scaling won't be performed if the processing capacity is within [target_rate / (target_utilization - boundary), (target_rate / (target_utilization + boundary)]</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.vertex.exclude.ids</h5></td>
+            <td style="word-wrap: break-word;"></td>
+            <td>List&lt;String&gt;</td>
+            <td>A (semicolon-separated) list of vertex ids in hexstring for which to disable scaling. Caution: For non-sink vertices this will still scale their downstream operators until https://issues.apache.org/jira/browse/FLINK-31215 is implemented.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.vertex.max-parallelism</h5></td>
+            <td style="word-wrap: break-word;">200</td>
+            <td>Integer</td>
+            <td>The maximum parallelism the autoscaler can use. Note that this limit will be ignored if it is higher than the max parallelism configured in the Flink config or directly on each operator.</td>
+        </tr>
+        <tr>
+            <td><h5>job.autoscaler.vertex.min-parallelism</h5></td>
+            <td style="word-wrap: break-word;">1</td>
+            <td>Integer</td>
+            <td>The minimum parallelism the autoscaler can use.</td>
+        </tr>
+    </tbody>
+</table>

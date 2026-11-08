@@ -1,0 +1,157 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink
+spec:
+  flinkConfiguration:
+    execution.checkpointing.interval: 1m
+    job.autoscaler.enabled: 'false'
+    job.autoscaler.metrics.window: 2m
+    job.autoscaler.stabilization.interval: 1m
+    job.autoscaler.target.utilization: '0.5'
+    job.autoscaler.target.utilization.boundary: '0.3'
+    jobmanager.scheduler: adaptive
+    metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporters: prom
+    pipeline.max-parallelism: '24'
+    s3.access-key: root
+    s3.endpoint: http://minio.manager:9000
+    s3.path.style.access: 'true'
+    s3.secret-key: rootroot
+    state.backend: rocksdb
+    state.backend.latency-track.keyed-state-enabled: 'true'
+    state.backend.rocksdb.metrics.block-cache-hit: 'true'
+    state.backend.rocksdb.metrics.block-cache-miss: 'true'
+    state.backend.rocksdb.metrics.block-cache-usage: 'true'
+    state.backend.rocksdb.metrics.bytes-read: 'true'
+    state.backend.rocksdb.metrics.bytes-written: 'true'
+    state.backend.rocksdb.metrics.column-family-as-variable: 'true'
+    state.backend.rocksdb.metrics.compaction-pending: 'true'
+    state.backend.rocksdb.metrics.compaction-read-bytes: 'true'
+    state.backend.rocksdb.metrics.compaction-write-bytes: 'true'
+    state.backend.rocksdb.metrics.cur-size-active-mem-table: 'true'
+    state.backend.rocksdb.metrics.cur-size-all-mem-tables: 'true'
+    state.backend.rocksdb.metrics.estimate-live-data-size: 'true'
+    state.backend.rocksdb.metrics.estimate-num-keys: 'true'
+    state.backend.rocksdb.metrics.estimate-pending-compaction-bytes: 'true'
+    state.backend.rocksdb.metrics.estimate-table-readers-mem: 'true'
+    state.backend.rocksdb.metrics.live-sst-files-size: 'true'
+    state.backend.rocksdb.metrics.size-all-mem-tables: 'true'
+    state.backend.rocksdb.metrics.total-sst-files-size: 'true'
+    state.checkpoints.dir: s3://flink/flink-checkpoints
+    state.savepoints.dir: s3://flink/flink-checkpoints
+    taskmanager.memory.managed.fraction: '0.3'
+    taskmanager.numberOfTaskSlots: '4'
+    web.cancel.enable: 'true'
+    web.submit.enable: 'true'
+  flinkVersion: v1_18
+  image: donaschmitz/flink:autoscaling2
+  jobManager:
+    podTemplate:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: job-manager-pod-template
+      spec:
+        initContainers:
+        - command:
+          - /bin/sh
+          - -c
+          - wget -O /opt/flink/downloads/job.jar https://forge.uclouvain.be/DonatienSchmitz/justin/-/raw/33e0f192cbc25f0afb604dcc029495526c93307d/nexmark/Query8.jar
+          image: busybox:1.36.1
+          name: busybox
+          volumeMounts:
+          - mountPath: /opt/flink/downloads
+            name: downloads
+    resource:
+      cpu: 1
+      memory: 2048m
+  logConfiguration:
+    log4j-console.properties: 'rootLogger.level = DEBUG
+
+      rootLogger.appenderRef.file.ref = LogFile
+
+      rootLogger.appenderRef.console.ref = LogConsole
+
+      appender.file.name = LogFile
+
+      appender.file.type = File
+
+      appender.file.append = false
+
+      appender.file.fileName = ${sys:log.file}
+
+      appender.file.layout.type = PatternLayout
+
+      appender.file.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
+
+      appender.console.name = LogConsole
+
+      appender.console.type = CONSOLE
+
+      appender.console.layout.type = PatternLayout
+
+      appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x
+      - %m%n
+
+      logger.akka.name = akka
+
+      logger.akka.level = INFO
+
+      logger.kafka.name= org.apache.kafka
+
+      logger.kafka.level = INFO
+
+      logger.hadoop.name = org.apache.hadoop
+
+      logger.hadoop.level = INFO
+
+      logger.zookeeper.name = org.apache.zookeeper
+
+      logger.zookeeper.level = INFO
+
+      logger.netty.name = org.apache.flink.shaded.akka.org.jboss.netty.channel.DefaultChannelPipeline
+
+      logger.netty.level = OFF
+
+
+      log4j.logger.org.apache.http.wire = OFF
+
+      log4j.logger.org.apache.http.headers = OFF
+
+      logger.http.name = org.apache.http
+
+      logger.http.level = OFF
+
+      logger.aws.name = com.amazonaws
+
+      logger.aws.level = OFF
+
+      '
+  podTemplate:
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: pod-template
+    spec:
+      containers:
+      - name: flink-main-container
+        ports:
+        - containerPort: 9249
+          name: prom
+        volumeMounts:
+        - mountPath: /opt/flink/downloads
+          name: downloads
+      volumes:
+      - emptyDir: {}
+        name: downloads
+  serviceAccount: flink
+  taskManager:
+    podTemplate:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: task-manager-pod-template
+    resource:
+      cpu: 4
+      memory: 8192m
