@@ -198,7 +198,7 @@ every policy compared on a query. Confirm the loaded value before deployment:
 printf 'EVENTS=%s TPS=%s\n' "${EVENTS}" "${TPS}"
 ```
 
-`POLICY=justin` or `POLICY=ds2` selects the scaler. `render-job.sh` loads the
+`POLICY=justin`, `POLICY=ds2`, or `POLICY=a4s` selects the scaler (A4S: see `docs/a4s-shards-mrc.md`). `render-job.sh` loads the
 independent `jobs/${QUERY}/${POLICY}/experiment.yaml` manifest and writes the
 selected autoscaler settings into `${RENDERED_MANIFEST}`. The already deployed
 Kubernetes Operator then runs that scaler automatically; do not start a

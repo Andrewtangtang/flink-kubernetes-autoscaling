@@ -32,6 +32,9 @@ Default registry tags are derived from `scripts/env.sh` and
 `cluster/config/env.sh`. Build scripts create local tags only;
 `scripts/images/push-images.sh` is the only script that pushes registry tags.
 
+A4S (SHARDS MRC) on the checkpoint-preserving stack: architecture, configuration,
+build/run and comparison notes are in [`docs/a4s-shards-mrc.md`](docs/a4s-shards-mrc.md).
+
 ## Initial Setup
 
 ```bash
