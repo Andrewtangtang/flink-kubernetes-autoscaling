@@ -10,6 +10,19 @@ Do not rebuild images while a benchmark is running. Do not run
 producer container before each rescale checkpoint and resumes the same
 container after restore. Kafka topics are never reset during a run.
 
+## Prerequisites
+
+This runbook assumes the cluster, monitoring, external Kafka and producer host
+already exist.
+
+Cluster prerequisites are not covered here. To bring up a cluster, follow
+`scripts/autoscaling/README.md`, which runs `scripts/autoscaling/cluster-management/00-*` to
+`05-*` in order: prerequisites, reset, node labels, monitoring, operator,
+image pre-pull. Static configuration lives in `cluster/` (see
+`cluster/README.md`). Set up the external Kafka host and the `kafka-external`
+Service with `experiments/1724-kafka-q20-unique/external-kafka/setup/01-prepare-generator-host.sh`
+and `02-apply-kafka-service.sh`.
+
 ## Part A: Build and deploy software
 
 Use one c165 terminal for this entire part. Part A does not need a query,
@@ -17,15 +30,17 @@ policy, or run ID.
 
 ### A1. Update the repository
 
-Stop if the first command reports local changes:
+Stop if the first command reports local changes. `BRANCH` is the branch that
+holds the code to run, for example `a4s-shards-mrc` for A4S:
 
 ```bash
 ssh -A c165
 cd ~/flink-kubernetes-autoscaling
 
+BRANCH=a4s-shards-mrc
 git status --short
 git fetch origin
-git switch producer-pause-checkpoint-rescaling
+git switch "${BRANCH}"
 git pull --ff-only
 git submodule sync --recursive
 git submodule update --init --recursive
@@ -39,14 +54,18 @@ still a submodule.
 
 ### A2. Load build settings
 
-These settings select dedicated images and the Justin operator source without
-creating benchmark run state:
+These settings select the image tag and the operator source without creating
+benchmark run state. Use one tag per code version so a build never overwrites
+images that other experiments use. `run-env.sh` in Part B defaults to
+`a4s-shards-mrc` for `POLICY=a4s` and `benchmark-checkpoint-rescale` otherwise;
+build under the tag that Part B will deploy.
 
 ```bash
 export KUBECONFIG=/etc/flink-kubernetes-autoscaling/kubeconfig
-export FLINK_RUNTIME_IMAGE_TAG=benchmark-checkpoint-rescale
-export FLINK_BENCHMARK_IMAGE_TAG=benchmark-checkpoint-rescale
-export OPERATOR_IMAGE_TAG=benchmark-checkpoint-rescale
+IMAGE_TAG=a4s-shards-mrc        # or benchmark-checkpoint-rescale for the DS2/Justin baseline images
+export FLINK_RUNTIME_IMAGE_TAG="${IMAGE_TAG}"
+export FLINK_BENCHMARK_IMAGE_TAG="${IMAGE_TAG}"
+export OPERATOR_IMAGE_TAG="${IMAGE_TAG}"
 export OPERATOR_SOURCE_DIR=sources/operators/flink-kubernetes-operator-justin
 unset HELM_CHART
 
@@ -61,12 +80,22 @@ printf 'kubeconfig=%s\nruntime=%s\nbenchmark=%s\noperator_source=%s\noperator=%s
 
 test "${KUBECONFIG}" = /etc/flink-kubernetes-autoscaling/kubeconfig
 test "${OPERATOR_SOURCE_DIR}" = sources/operators/flink-kubernetes-operator-justin
-test "${OPERATOR_IMAGE_TAG}" = benchmark-checkpoint-rescale
+test "${OPERATOR_IMAGE_TAG}" = "${IMAGE_TAG}"
 ```
 
 If the shell or tmux session changes, repeat A2 before continuing.
 
 ### A3. Build the images
+
+Build the FRocksDB library first when it has changed or has never been built
+on this host. The step copies `rocksdbjni-*-linux*.jar` into the Flink source
+tree, and the runtime image installs it from there:
+
+```bash
+sudo bash images/frocksdb/build.sh
+```
+
+Then build the three images in order:
 
 ```bash
 sudo bash images/flink-runtime/build.sh \
@@ -104,6 +133,7 @@ sudo docker push "${FLINK_BENCHMARK_IMAGE}"
 sudo docker tag "${OPERATOR_LOCAL}" "${OPERATOR_IMAGE}"
 sudo docker push "${OPERATOR_IMAGE}"
 
+# --target-host is the external host that runs Kafka and the producer
 scripts/autoscaling/cluster-management/05-prepull-images.sh \
   --target-host c153
 ```
@@ -156,9 +186,10 @@ fi
 
 The deploy command must use the chart under
 `sources/operators/flink-kubernetes-operator-justin`. Both reported container
-images must end in `flink-kubernetes-operator:benchmark-checkpoint-rescale`.
-Because this workflow reuses that mutable tag, `rollout restart` is required
-after every push. Do not continue to Part B unless the running and registry
+images must end in `flink-kubernetes-operator:${OPERATOR_IMAGE_TAG}`. Because
+this workflow reuses a mutable tag, `rollout restart` is required after every
+push. There is one operator for the whole cluster, so the deployed operator
+also handles every later DS2, Justin or A4S job until it is redeployed. Do not continue to Part B unless the running and registry
 digests are non-empty and identical.
 
 Part A is now complete. Do not repeat it for every benchmark run unless code
@@ -178,15 +209,16 @@ ssh -A c165
 cd ~/flink-kubernetes-autoscaling
 
 export QUERY=q20       # q4, q9, q18, q19, or q20
-export POLICY=justin   # justin or ds2
-export RUN_ID=20260811-q20-justin-01
+export POLICY=a4s      # ds2, justin, or a4s
+export RUN_ID=20261110-q20-a4s-01
+# Optional: export CHECKPOINT_RESCALE=false CHECKPOINT_INTERVAL=1m
 
 unset EVENTS           # discard a stale value loaded by an older run
 source experiments/1729-checkpoint-aware-rescaling/run-env.sh
 ```
 
-Use a new `RUN_ID` for every independent run. Never reuse an ID whose NFS
-state directory may still exist. Use a different ID for the matched DS2 run.
+Use a new `RUN_ID` for every independent run and for every policy. Never
+reuse an ID whose NFS state directory may still exist.
 If an old ID must be reused, follow B2 before resetting Kafka or deploying.
 The default bounded horizon is 300 million mixed Nexmark events. It prevents
 the producer from ending before the final stability windows; it is not the
@@ -198,9 +230,13 @@ every policy compared on a query. Confirm the loaded value before deployment:
 printf 'EVENTS=%s TPS=%s\n' "${EVENTS}" "${TPS}"
 ```
 
-`POLICY=justin`, `POLICY=ds2`, or `POLICY=a4s` selects the scaler (A4S: see `docs/a4s-shards-mrc.md`). `render-job.sh` loads the
-independent `jobs/${QUERY}/${POLICY}/experiment.yaml` manifest and writes the
-selected autoscaler settings into `${RENDERED_MANIFEST}`. The already deployed
+`POLICY` selects the scaler; A4S is described in `docs/a4s-shards-mrc.md`.
+`render-job.sh` loads the independent `jobs/${QUERY}/${POLICY}/experiment.yaml`
+manifest and writes the run ID, the image, and the checkpoint settings
+(`CHECKPOINT_RESCALE`, `CHECKPOINT_INTERVAL`) into `${RENDERED_MANIFEST}`.
+`run-env.sh` also picks the image tags: `a4s-shards-mrc` for `POLICY=a4s`,
+`benchmark-checkpoint-rescale` otherwise. Override the three `*_IMAGE_TAG`
+variables to run DS2 or Justin on the A4S images. The already deployed
 Kubernetes Operator then runs that scaler automatically; do not start a
 separate scaler process or the historical coordinator.
 
@@ -258,7 +294,7 @@ experiments/1724-kafka-q20-unique/external-kafka/run/manage-external-kafka.sh re
 
 experiments/1729-checkpoint-aware-rescaling/render-job.sh
 
-grep -E 'image:|upgradeMode:|state.checkpoints.dir:|job.autoscaler.(enabled|justin.enabled):' \
+grep -E 'image:|upgradeMode:|state.checkpoints.dir:|job.autoscaler.(enabled|justin.enabled|a4s.enabled|checkpoint-rescale.enabled):|rocksdb.memory.managed:' \
   "${RENDERED_MANIFEST}"
 kubectl apply --dry-run=server -f "${RENDERED_MANIFEST}"
 kubectl apply -f "${RENDERED_MANIFEST}"
@@ -266,9 +302,19 @@ kubectl apply -f "${RENDERED_MANIFEST}"
 kubectl get flinkdeployment flink -w
 ```
 
-The rendered image must be `benchmark-checkpoint-rescale`, upgrade mode must
-be `last-state`, checkpoint storage must contain `${RUN_ID}`, and the Justin
-flag must match `${POLICY}`. Applying the manifest is what starts the selected
+Check the rendered values before applying:
+- `image` equals `${FLINK_BENCHMARK_IMAGE}`;
+- upgrade mode is `last-state`;
+- checkpoint storage contains `${RUN_ID}`;
+- `checkpoint-rescale.enabled` equals `${CHECKPOINT_RESCALE}`;
+- the policy flags match `${POLICY}`:
+
+| `POLICY` | `justin.enabled` | `a4s.enabled` | `rocksdb.memory.managed` |
+|---|---|---|---|
+| `ds2` | `false` | absent | `false` |
+| `justin` | `true` | absent | `false` |
+| `a4s` | `true` | `true` | `true` |
+ Applying the manifest is what starts the selected
 scaler. Wait for `JOB STATUS=RUNNING` and `LIFECYCLE STATE=STABLE`, then press
 `Ctrl-C`.
 
@@ -365,7 +411,8 @@ experiments/1729-checkpoint-aware-rescaling/checkpoint-producer-controller.py \
   --interval 1
 ```
 
-This controller must be running before the producer starts. It pauses the
+This controller is needed only when `CHECKPOINT_RESCALE=true`, and then it
+must be running before the producer starts. It pauses the
 existing producer container when a transaction enters
 `WAITING_PRODUCER_PAUSE`, writes a transaction-specific acknowledgement to the
 FlinkDeployment, and resumes the same container only after restore reaches
@@ -384,12 +431,16 @@ scripts/autoscaling/job-monitoring/observe-scaling.py \
 This prints each per-period decision, including parallelism, memory level,
 window-average capacity, cache hit rate, state latency, and H/V flags. Keep
 it running for Justin experiments because the memory-level path is visible
-there.
+there. For A4S the memory-level column does not show A4S's memory: read the
+`A4S:` lines in the operator log, or `managedMemoryMB` in the scaling
+configuration history of the autoscaler ConfigMap.
 
 ### Expected rescale sequence
 
+With `CHECKPOINT_RESCALE=true`:
+
 ```text
-Justin or DS2 decision
+DS2, Justin or A4S decision
   -> producer paused and pause acknowledged
   -> fresh checkpoint triggered and completed
   -> target parallelism and optional memory applied
@@ -397,6 +448,9 @@ Justin or DS2 decision
   -> Kafka sources resume from checkpointed offsets
   -> producer resumed and resume acknowledged
 ```
+
+With `CHECKPOINT_RESCALE=false` the producer keeps running, and the job
+rescales in place from its latest periodic checkpoint.
 
 The producer process is frozen rather than stopped, so its event counter and
 configuration are preserved. Kafka topics remain intact. Events already in
