@@ -31,11 +31,11 @@ git submodule sync --recursive
 git submodule update --init --recursive
 
 git log -3 --oneline
-git submodule status \
-  sources/operators/flink-kubernetes-operator-justin
 ```
 
-The operator submodule must point to the commit recorded by the outer branch.
+The operator and FRocksDB sources are tracked directories of this repository,
+so the outer commit fixes their versions; only the Nexmark SQL benchmarks are
+still a submodule.
 
 ### A2. Load build settings
 

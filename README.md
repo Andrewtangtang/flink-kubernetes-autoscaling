@@ -17,7 +17,8 @@ The current source defaults are:
 - `sources/benchmarks/nexmark-datastream-benchmarks-from-justin`: vendored original DataStream Nexmark benchmark suite.
 - `sources/benchmarks/nexmark-sql-benchmarks`: SQL Nexmark benchmark submodule with the custom Kafka connector submodule.
 - `sources/libs/rocksdb-options`: minimal RocksDB options Maven project for the Kubernetes Justin experiments.
-- `sources/operators/flink-kubernetes-operator-justin`: split Flink Kubernetes Operator repo with the Justin autoscaling changes.
+- `sources/operators/flink-kubernetes-operator-justin`: vendored Flink Kubernetes Operator with the Justin autoscaling, checkpoint-gated rescaling, and A4S changes.
+- `sources/libs/frocksdb`: vendored FRocksDB 6.20.3 (QuickMRC base plus the SHARDS MRC estimator) for the `rocksdbjni` jar.
 
 The image tags are:
 
