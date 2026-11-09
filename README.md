@@ -32,8 +32,35 @@ Default registry tags are derived from `scripts/env.sh` and
 `cluster/config/env.sh`. Build scripts create local tags only;
 `scripts/images/push-images.sh` is the only script that pushes registry tags.
 
-A4S (SHARDS MRC) on the checkpoint-preserving stack: architecture, configuration,
-build/run and comparison notes are in [`docs/a4s-shards-mrc.md`](docs/a4s-shards-mrc.md).
+## A4S (SHARDS MRC)
+
+Branch `a4s-shards-mrc` adds the A4S autoscaler to the checkpoint-preserving
+DS2/Justin stack. A4S uses an online SHARDS miss-rate curve, with SHARDS_adj.
+Other branches do not contain these changes.
+
+Where the A4S changes live:
+
+| Area | Path |
+|---|---|
+| SHARDS estimator in the block cache (C++ and JNI) | `sources/libs/frocksdb/cache/shards_mrc_estimator.{h,cc}`, `sources/libs/frocksdb/java/src/main/java/org/rocksdb/LRUCache.java` |
+| Shared histogram and MRC library | `sources/flink/flink-1-18-src-from-justin/flink-a4s/` |
+| RocksDB wiring and metrics | `sources/flink/flink-1-18-src-from-justin/flink-state-backends/flink-statebackend-rocksdb/` |
+| `/a4s-metrics` REST endpoint | `sources/flink/flink-1-18-src-from-justin/flink-runtime/` (`A4SAggregatingVertexMetricsHandler`) |
+| A4S decision logic in the autoscaler | `sources/operators/flink-kubernetes-operator-justin/flink-autoscaler/` (`a4s/`, `ScalingMetricCollector`, `ScalingMetricEvaluator`, `ScalingExecutor`) |
+| Experiment manifests and run settings | `experiments/1729-checkpoint-aware-rescaling/jobs/<query>/a4s/`, `run-env.sh` |
+
+`sources/flink/flink-runtime-1-18-a4s/` and
+`sources/operators/flink-kubernetes-operator-a4s/` hold the original A4S port.
+They are kept for reference only and are not part of the build.
+
+Documents:
+
+| Document | Read it for |
+|---|---|
+| [`docs/a4s-shards-mrc.md`](docs/a4s-shards-mrc.md) | Start here. It covers how A4S works (overview and diagram), how to build and run it, running on another cluster, comparing with DS2/Justin, how to test, limitations, all configuration keys, and an appendix with per-component details and the key APIs. |
+| [`experiments/1729-checkpoint-aware-rescaling/instruction.md`](experiments/1729-checkpoint-aware-rescaling/instruction.md) | The step-by-step c165 runbook for any policy: build and deploy the images, run one benchmark, collect evidence. |
+| [`scripts/autoscaling/README.md`](scripts/autoscaling/README.md), [`cluster/README.md`](cluster/README.md) | Setting up the cluster itself: prerequisites, node labels, monitoring, operator. |
+| [`docs/image-builds.md`](docs/image-builds.md) | General image build and tag conventions. |
 
 ## Initial Setup
 
