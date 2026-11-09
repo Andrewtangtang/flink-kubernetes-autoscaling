@@ -502,75 +502,60 @@ Known status:
 
 ## Limitations and further research directions
 
-**Not yet validated**
+### Latency calibration
 
-- Nothing has run on Linux or on the cluster yet. Still pending:
-  - the GCC build of the estimator;
-  - the crossbuild jar;
-  - the `pb_ds`-based offline `ShardsMRC` tests, compiled out on macOS;
-  - the images;
-  - end-to-end runs.
-- SHARDS accuracy at R = 0.01 with adj is unmeasured on Nexmark. The evidence
-  so far:
-  - Sultan's PhD thesis (264 workloads): FR 0.01 mean MAE ~6% → ~0.8% with
-    adj, but a tail up to ~16%;
-  - offline Q19 (3M): 15.38 → 0.32 pp.
-- MAE averages over all cache sizes, while A4S inverts the MRC at small miss
-  rates (`m*(P)` ≈ 1–10%). The V2 check should compare exact (R = 1) against
-  R = 0.01 + adj on:
-  - (a) memory at `m*(P)`;
-  - (b) the chosen (P, MB);
-  - (c) the knee position.
-- `l_hit` and `l_miss` are thesis-style constants (ratio 1000), not calibrated
-  for this hardware. A4S decisions scale with them.
+A4S decisions depend on `l_hit` and `l_miss` as much as on the MRC:
+`m*(P) = (P/T − l_hit) / (l_miss − l_hit)` sets Pmin (`⌈l_hit·T⌉`) and the miss
+rate at which every MPC point is read.
 
-**Model and implementation limits**
+**Current state**
 
-- **Placement.** `place()` checks only the per-slot cap. It is not the
-  thesis's worker-level worst-fit bin-packing over CPU and memory; actual slot
-  placement is left to Justin's scheduler. As a result Alg 3 rarely runs.
-- **One stateful task per slot.** `task_mb` assumes this, which holds with
-  Justin's per-vertex profiles. Slot sharing between stateful vertices would
-  split M.
-- **Write-buffer approximation.** `1/(1−r)` assumes memtables fill the WBM.
-  When they don't, A4S over-provisions by up to that factor.
-- **Index/filter memory.** It lives outside managed memory and is unbounded; it
-  grows with open SSTs (`max_open_files = -1`). If
-  `estimate-table-readers-mem` becomes significant (provisional threshold:
-  10% of the cache) or TMs are OOM-killed, move index/filter into the cache and
-  subtract the measured size.
-- **MRC scaling assumption.** `MRC_op(m·P) = MRC_task(m)` assumes uniform key
-  partitioning. Skewed keys break it.
-- **First period.** A stateful vertex without an MRC falls back to Justin's
-  level profile.
-- **Operator restart.** A restart outside stabilization loses one collection
-  interval, because the baseline is held in memory only.
-- **D_cap = 4 GiB per task** truncates distances beyond it; watch
-  `evicted-by-cap`.
-- **Cold start.** A4S needs runtime metrics; the first configuration comes
-  from the manifest.
-- **Fixed TM profile.** Heap and network sizes come from fixed TM-size
-  branches in `ScalingExecutor`.
-- **Missing pieces.**
-  - There are no A4S manifests for the AWS `normalized` profile.
-  - `/a4s-metrics` is not in `rest_api_v1.snapshot`.
+- Both values are fixed configuration: `a4s.hit-latency-sec = 5e-6` and
+  `a4s.miss-latency-sec = 5e-3`, the thesis-style ratio of 1000.
+- Neither is measured on this cluster. A wrong `l_miss` shifts every
+  `m*(P)`, and therefore the memory chosen for every P.
+- Every result must record the values used.
 
-**Research directions**
+**Calibration path**
 
-1. **V2 validation.** Compare SHARDS (R = 0.01, adj) with exact MRCs from
-   block-cache traces, using the criteria above. Also measure the `block_size`
-   distribution.
-2. **Fixed-size SHARDS + adj.** It has the smallest error tail in Sultan's
-   evaluation and bounds estimator memory by construction, so it could replace
-   D_cap.
-3. **Sliding window (option B).** Keep the last k epoch snapshots instead of one
-   baseline (HistoChron), so the MRC tracks workload drift between rescales.
-4. **Latency calibration.** Derive `l_hit` and `l_miss` from RocksDB
-   statistics, such as block-read micros and cache-hit latency, instead of
-   constants.
-5. **Full Alg 2.** Implement worker-level placement with CPU and memory, and
-   co-design it with the slot assigner.
-6. **Memory accounting.** Use measured memtable usage instead of the
-   `1/(1−r)` bound, and account index/filter explicitly.
-7. **Locality.** Account for state-transfer cost in placement, which the
-   thesis leaves as future work (cf. CAPSys).
+1. **Thesis method (§4).** Estimate both online:
+   `l_hit = (1 − T_io − T_wait) / R_input` and
+   `l_miss = l_hit + T_io / R_io`.
+2. **Flink equivalent.** Take the mean per-record latency `1/TPR` (true
+   processing rate) and the window's measured miss ratio `MR`, then solve
+   `1/TPR = MR·l_miss + (1 − MR)·l_hit` across two windows, or across the two
+   sides of a rescale.
+3. **Cross-check.** Compare the result with the state-latency metrics the
+   Justin operator already collects (`*_STATE_GET_MEAN_LATENCY`).
+
+### A4S in the real environment
+
+These limits come from how A4S is realized on this stack.
+
+- **Placement.** `place()` checks only the per-slot memory cap. It is not the
+  thesis's worker-level worst-fit bin-packing over CPU and memory. Which TM a
+  slot lands on is left to Justin's resource-profile path and the adaptive
+  scheduler, so Alg 3 rarely runs.
+- **One stateful task per slot.** `task_mb = MPC[P] / P / (1 − r)` assumes each
+  slot's managed memory serves one stateful task. This holds with Justin's
+  per-vertex resource profiles.
+- **Write-buffer factor.** `1/(1 − r)` assumes memtables fill the WBM. When they
+  do not, the data-block cache is larger than A4S planned for.
+- **Index/filter memory.** It lives in table-reader native memory outside the
+  managed budget, and grows with the number of open SSTs. Watch
+  `rocksdb.estimate-table-readers-mem`. If it becomes significant against the
+  cache, or a TM is OOM-killed, move index/filter into the cache and subtract
+  the measured size from A4S's budget.
+- **D_cap.** Reuse distances beyond `a4s.shards.max-distance` (4 GiB per task)
+  are truncated into the infinite bin, which caps the memory an MPC point can
+  ask for; watch `rocksdb.a4s.shards.evicted-by-cap`.
+- **First decision.** Before any MRC exists, a stateful vertex without a
+  decision falls back to Justin's memory-level profile. The initial
+  configuration comes from the manifest (thesis "cold start").
+- **Operator restart.** The MRC baseline is held in operator memory. A restart
+  outside stabilization loses one collection interval before the window
+  resumes.
+- **TM profile.** Heap and network sizes in the resource profile come from two
+  fixed TM-size branches in `ScalingExecutor`, not from the TM's configuration.
+- **Coupling to Justin.** A4S runs only with `justin.enabled`, because it
+  replaces Justin's `policy()` and reuses its overrides and history.
