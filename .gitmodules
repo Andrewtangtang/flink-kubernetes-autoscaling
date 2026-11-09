@@ -2,7 +2,3 @@
 	path = sources/benchmarks/nexmark-sql-benchmarks
 	url = git@github.com:shafinulh/nexmark.git
 	branch = master
-[submodule "sources/libs/frocksdb"]
-	path = sources/libs/frocksdb
-	url = git@github.com:Andrewtangtang/frocksdb.git
-	branch = a4s-shards-mrc
