@@ -65,23 +65,23 @@ flowchart TB
   J -. "tasks restart with the new settings" .-> TM
 ```
 
-1. **Measure.** Each slot has one RocksDB block cache, and the SHARDS estimator
+1. Measure. Each slot has one RocksDB block cache, and the SHARDS estimator
    is attached to it. Every data-block read is passed to the estimator. The
    estimator keeps a histogram that answers one question: for each cache size,
    how many reads would have been hits?
-2. **Collect.** The JobManager adds up the histograms of all subtasks of an
+2. Collect. The JobManager adds up the histograms of all subtasks of an
    operator, and serves the result at `/a4s-metrics`.
-3. **Window.** The histogram counts from the moment the cache was created. The
+3. Window. The histogram counts from the moment the cache was created. The
    operator remembers the histogram at the end of the stabilization period and
    subtracts it, so the MRC covers only the time since the job became stable.
    Every rescale starts a new window. SHARDS_adj is applied at this point.
-4. **Curve.** The MRC and the operator's target rate give the
+4. Curve. The MRC and the operator's target rate give the
    memory-parallelism curve (MPC): for each parallelism, the least cache that
    still sustains the target rate.
-5. **Decide.** For each operator, A4S takes the lowest parallelism whose
+5. Decide. For each operator, A4S takes the lowest parallelism whose
    per-slot memory fits under a configured cap, and turns the cache size into a
    managed-memory size.
-6. **Apply.** The decision becomes a new parallelism and slot memory per
+6. Apply. The decision becomes a new parallelism and slot memory per
    operator. The checkpoint-preserving rescale applies it: pause the producer,
    take a checkpoint, apply, restore, verify.
 
@@ -91,29 +91,64 @@ RocksDB uses Flink managed memory, which the DS2 and Justin manifests turn off.
 
 ## How to build and run
 
-Run everything on c165 from the repository root.
-`experiments/1729-checkpoint-aware-rescaling/instruction.md` has the full
-steps for pushing images, deploying the operator and checking image digests.
-A4S images use the `a4s-shards-mrc` tag, so the DS2/Justin baseline images
-stay untouched.
+Run every command from the repository root, on a host that meets three
+conditions:
+- Docker with BuildKit is installed;
+- the host can push to your image registry;
+- `kubectl` reaches the cluster (`KUBECONFIG`).
 
-Cluster prerequisites are not covered here. To bring up a cluster, follow
-`scripts/autoscaling/README.md`, which runs `scripts/autoscaling/cluster-management/00-*` to
-`05-*` in order: prerequisites, reset, node labels, monitoring, operator,
-image pre-pull. Static configuration lives in `cluster/` (see
-`cluster/README.md`). Set up the external Kafka host and the `kafka-external`
-Service with `experiments/1724-kafka-q20-unique/external-kafka/setup/01-prepare-generator-host.sh`
+`experiments/1729-checkpoint-aware-rescaling/instruction.md` is the full
+step-by-step runbook for the CSL cluster. A4S images use the `a4s-shards-mrc`
+tag, so the DS2/Justin baseline images stay untouched.
+
+### Cluster requirements
+
+The cluster needs:
+- Kubernetes with the Flink Kubernetes Operator's prerequisites;
+- an image registry that every node can pull from;
+- storage for checkpoints, savepoints and HA metadata, mounted at the same path
+  on every node;
+- a local disk for RocksDB on each TaskManager node;
+- an external Kafka broker and a host for the Nexmark producer.
+
+To bring up such a cluster, run `scripts/autoscaling/cluster-management/00-*`
+to `05-*` in order, as described in `scripts/autoscaling/README.md`. The steps
+are prerequisites, reset, node labels, monitoring, operator, and image
+pre-pull. Static configuration lives in `cluster/` (see `cluster/README.md`).
+Set up the Kafka host and the `kafka-external` Service with
+`experiments/1724-kafka-q20-unique/external-kafka/setup/01-prepare-generator-host.sh`
 and `02-apply-kafka-service.sh`.
+
+### Cluster-specific settings
+
+Set these for your cluster before building. The example values are those of
+the CSL cluster.
+
+| Setting | Example (CSL cluster) | Where |
+|---|---|---|
+| Image registry | `142.150.234.165:5000` (control plane `c165`) | `CONTROL_PLANE`, `CONTROL_PLANE_IP` in `cluster/config/env.sh`; `REGISTRY` in `scripts/env.sh` |
+| kubeconfig | `/etc/flink-kubernetes-autoscaling/kubeconfig` | `KUBECONFIG` in `run-env.sh`; `SHARED_KUBECONFIG` in `cluster/config/env.sh` |
+| Operator Helm values | `cluster/operator/values.yaml` | `OPERATOR_VALUES` in `cluster/config/env.sh` |
+| Kafka address seen by Flink | Service `kafka-external:9092`, pointing at host `c153` | Created by `experiments/1724-kafka-q20-unique/external-kafka/setup/02-apply-kafka-service.sh` (`TARGET_HOST`, `KAFKA_PORT`); used as `--bootstrap-servers` in each manifest |
+| Producer host | `c153` / `142.150.234.153`, REST port `18081` | `TARGET_HOST`, `TARGET_IP`, `PRODUCER_REST_PORT` in `run-env.sh` |
+| Producer pause and resume | `checkpoint-producer-controller.py`, which stops and starts the producer container through `manage-standalone-producer.sh` | Needed only when `CHECKPOINT_RESCALE=true` |
+| Node placement | `nodeSelector` `tier: jobmanager` / `tier: taskmanager` | Each manifest under `jobs/<q>/<policy>/`; label your nodes the same way or edit the selector |
+| Checkpoint storage | hostPath `/mnt/experiments/autoscaling-experiments/flink-state` | Each manifest (`state.*.dir`, `high-availability.storageDir`, volumes); `EXPERIMENTS_ROOT` in `cluster/config/env.sh` |
+| RocksDB local disk | hostPath `/data/flink/rocksdb` | Each manifest (`state.backend.rocksdb.localdir`, volumes) |
+
+The node selector, the checkpoint path and the RocksDB path are written in each
+manifest. Either match them on your cluster or edit the manifests. The
+`normalized` profile (`jobs-normalized/`, `aws.env.example`) targets AWS, using
+S3, ECR and a `KAFKA_BOOTSTRAP` address. It has no A4S manifests yet.
 
 ### Environment
 
 ```bash
-ssh -A c165
-cd ~/flink-kubernetes-autoscaling
 git fetch origin && git switch a4s-shards-mrc && git pull --ff-only
 git submodule update --init --recursive      # Nexmark SQL benchmarks only
+export KUBECONFIG=<path to your kubeconfig>
 
-export QUERY=q20 POLICY=a4s RUN_ID=20261110-q20-a4s-01
+export QUERY=q20 POLICY=a4s RUN_ID=20261110-q20-a4s-01   # POLICY: ds2, justin or a4s
 unset EVENTS HELM_CHART
 source experiments/1729-checkpoint-aware-rescaling/run-env.sh
 ```
@@ -139,58 +174,50 @@ sudo bash images/flink-kubernetes-operator/build.sh \
   --source-dir "${OPERATOR_SOURCE_DIR}" --tag "${OPERATOR_IMAGE_TAG}"
 ```
 
-Then push the images, pre-pull them and deploy the operator, following parts
-A4 and A5 of `instruction.md`.
+### Push the images and deploy the operator
+
+```bash
+# Tag and push to the registry; also pre-pulls the benchmark image on the nodes
+sudo bash scripts/images/push-images.sh all
+
+# Deploy the operator from this branch's chart with the pushed image.
+# The tag is reused, so restart the pod to pull the new image.
+scripts/autoscaling/cluster-management/04-deploy-operator.sh
+kubectl rollout restart deployment/flink-kubernetes-operator --namespace default
+kubectl rollout status deployment/flink-kubernetes-operator --namespace default --timeout=180s
+```
 
 There is one operator for the whole cluster. Once the `a4s-shards-mrc`
 operator is deployed, DS2 and Justin jobs also run on it. Their behavior is
 unchanged, but it is a different build from the baseline operator.
+`instruction.md` part A5 shows how to check that the running operator image
+matches the registry digest.
 
 ### Run
 
 ```bash
+# Start a run: reset Kafka, deploy the job, then start the producer
+experiments/1724-kafka-q20-unique/external-kafka/run/manage-external-kafka.sh reset
 bash experiments/1729-checkpoint-aware-rescaling/render-job.sh
 kubectl apply --dry-run=server -f "${RENDERED_MANIFEST}"
 kubectl apply -f "${RENDERED_MANIFEST}"
+kubectl get flinkdeployment flink -w          # wait for RUNNING and STABLE
+
+# With CHECKPOINT_RESCALE=true, the producer controller must run before the producer starts
+experiments/1729-checkpoint-aware-rescaling/checkpoint-producer-controller.py --interval 1 &
+experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh start
 ```
 
 Checkpoint-preserving rescaling is on by default. To rescale without it, set a
-periodic checkpoint interval:
+periodic checkpoint interval before sourcing `run-env.sh`:
 
 ```bash
 export CHECKPOINT_RESCALE=false CHECKPOINT_INTERVAL=1m
 source experiments/1729-checkpoint-aware-rescaling/run-env.sh
 ```
 
-### Running on another cluster
-
-The steps above assume the CSL cluster. On another Kubernetes cluster you
-need the following:
-
-- A container registry that every node can pull from.
-- An external Kafka broker, plus a host that runs the standalone Nexmark
-  producer.
-- Storage for checkpoints, savepoints and HA metadata that every node mounts
-  at the same path.
-- A local disk on each TaskManager node for RocksDB.
-- Docker with BuildKit on the build host.
-
-Change these cluster-specific settings:
-
-| Setting | Current value | Where |
-|---|---|---|
-| Image registry | `142.150.234.165:5000` (control plane `c165`) | `CONTROL_PLANE`, `CONTROL_PLANE_IP` in `cluster/config/env.sh`; `REGISTRY` in `scripts/env.sh` |
-| kubeconfig | `/etc/flink-kubernetes-autoscaling/kubeconfig` | `KUBECONFIG` in `run-env.sh`; `SHARED_KUBECONFIG` in `cluster/config/env.sh` |
-| Operator Helm values | `cluster/operator/values.yaml` | `OPERATOR_VALUES` in `cluster/config/env.sh` |
-| Kafka address seen by Flink | Service `kafka-external:9092`, pointing at host `c153` | Created by `experiments/1724-kafka-q20-unique/external-kafka/setup/02-apply-kafka-service.sh` (`TARGET_HOST`, `KAFKA_PORT`); used as `--bootstrap-servers` in each manifest |
-| Producer host | `c153` / `142.150.234.153`, REST port `18081` | `TARGET_HOST`, `TARGET_IP`, `PRODUCER_REST_PORT` in `run-env.sh` |
-| Producer pause and resume | `checkpoint-producer-controller.py`, which stops and starts the producer container through `manage-standalone-producer.sh` | Needed only when `CHECKPOINT_RESCALE=true` |
-| Node placement | `nodeSelector` `tier: jobmanager` / `tier: taskmanager` | Each manifest under `jobs/<q>/<policy>/`; label your nodes the same way or edit the selector |
-| Checkpoint storage | hostPath `/mnt/experiments/autoscaling-experiments/flink-state` | Each manifest (`state.*.dir`, `high-availability.storageDir`, volumes); `EXPERIMENTS_ROOT` in `cluster/config/env.sh` |
-| RocksDB local disk | hostPath `/data/flink/rocksdb` | Each manifest (`state.backend.rocksdb.localdir`, volumes) |
-
-The `normalized` profile (`jobs-normalized/`, `aws.env.example`) targets AWS.
-It uses S3, ECR and a `KAFKA_BOOTSTRAP` address, but has no A4S manifests yet.
+`instruction.md` Part B covers everything else: the observer that decides
+when a run is finished, evidence collection, and stopping a run.
 
 ### Compare with Justin and DS2
 
@@ -307,7 +334,62 @@ and the measured miss ratio, instead of using fixed values.
 
 ## Configuration
 
-**Operator (`job.autoscaler.*`, in the FlinkDeployment `flinkConfiguration`)**
+### How to change a setting
+
+- Flink, operator and A4S keys. These are the `job.autoscaler.*`,
+  `state.backend.rocksdb.*` and `taskmanager.*` keys, plus the
+  `taskManager.resource` block. They live in each manifest,
+  `experiments/1729-checkpoint-aware-rescaling/jobs/<query>/<policy>/experiment.yaml`.
+  Edit the file for each query and policy you run; the policies of one query
+  must stay comparable. `render-job.sh` does not override these keys. It only
+  fills in the run ID, the image and the checkpoint settings.
+- Run settings. `POLICY`, `QUERY`, `RUN_ID`, `CHECKPOINT_RESCALE`,
+  `CHECKPOINT_INTERVAL` and the image tags are environment variables. Export
+  them before `source experiments/1729-checkpoint-aware-rescaling/run-env.sh`.
+- Built-in defaults. A key missing from a manifest takes the default listed
+  in the tables below.
+
+### Where each component is configured
+
+| Component | File | What you can change there | Takes effect |
+|---|---|---|---|
+| Benchmark job (Flink, A4S, RocksDB) | `experiments/1729-checkpoint-aware-rescaling/jobs/<query>/<policy>/experiment.yaml` | `spec.flinkConfiguration`: every `job.autoscaler.*`, `state.backend.rocksdb.*`, `taskmanager.*` and checkpoint key in this section; `pipeline.jobvertex-parallelism-overrides` (starting parallelism per operator); `job.autoscaler.vertex.exclude.ids` (operators the scaler leaves alone). `jobManager.resource` / `taskManager.resource`: process memory and CPU. `podTemplate`: node selector, volumes, local RocksDB path. `job.args`: query name and Kafka address. `logConfiguration`: log levels | Next job deployment |
+| Run settings | `experiments/1729-checkpoint-aware-rescaling/run-env.sh`, via environment variables | `POLICY`, `QUERY`, `RUN_ID`, `EXPERIMENT_PROFILE`, `CHECKPOINT_RESCALE`, `CHECKPOINT_INTERVAL`, image tags. Input rate `TPS` per query and profile | Next `source run-env.sh` |
+| Nexmark producer (standalone Flink in Docker on the producer host) | Environment variables set in `run-env.sh` and read by `experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh` | `TPS`, `EVENTS`, `MAX_EMIT_SPEED`, `SOURCE_EVENT_SHARE`. Producer sizing: `PARALLELISM`, `SLOTS`, `TM_CORES`, `DOCKER_CPUS`, `JM_PROCESS_MEMORY`, `TM_PROCESS_MEMORY`. These size the producer, not the benchmark job | Next producer start |
+| Kubernetes operator deployment | `cluster/operator/values.yaml` (Helm values); chart from `OPERATOR_SOURCE_DIR` | Operator-wide settings such as log levels. Autoscaler behavior is not set here; it comes from each job's manifest | `scripts/autoscaling/cluster-management/04-deploy-operator.sh` |
+| RocksDB tuning shared by all policies | `sources/libs/rocksdb-options/src/main/java/com/example/CustomRocksDBOptionsFactoryKubernetesJustin.java` | Constants for memtable size, compaction, direct I/O, bloom filter | Rebuild the benchmark image, which packages this jar |
+| Image names, tags and source directories | `scripts/env.sh` | Image names, default tags, which source tree each image builds from | Next image build |
+| Image contents | `images/*/Dockerfile`, `sources/operators/flink-kubernetes-operator-justin/Dockerfile` | Base images, build steps, the FRocksDB jar name | Next image build |
+| Cluster-wide settings | `cluster/config/env.sh` | Registry, control plane, kubeconfig, checkpoint host paths, monitoring | Next use of the cluster scripts |
+| Kafka address seen by Flink | `experiments/1724-kafka-q20-unique/external-kafka/setup/02-apply-kafka-service.sh` | `TARGET_HOST`, `KAFKA_PORT` for the `kafka-external` Service | Rerun the setup script |
+
+### Memory settings
+
+These settings interact, so change them together.
+
+| Setting | Current value | Where | Notes |
+|---|---|---|---|
+| `taskManager.resource.memory` | `3072m` | manifest, `taskManager.resource` | TaskManager process size. It also selects the slot profile the operator writes. Up to 3 GiB: Justin's memory steps are `158·2^k` MB, with heap 134 MB and network 39 MB per slot. Above 3 GiB: `343·2^k` MB, with heap 363 MB and network 84 MB. |
+| `taskmanager.memory.managed.size` | `1264m` | `flinkConfiguration` | Managed memory of one TaskManager, shared by its slots. A slot can never get more than this. |
+| `taskmanager.numberOfTaskSlots` | `4` (q20), `8` (q4, q9, q18, q19) | `flinkConfiguration` | Without per-slot overrides (DS2), each slot gets `managed.size / slots`: 316 MB for q20, 158 MB for the others. |
+| `job.autoscaler.memory.max-level` | `3` (q20), `4` (others) | `flinkConfiguration` | Justin uses steps `k = 0 .. max-level − 1`, so its largest slot is `158 · 2^(max-level − 1)` MB on a 3 GiB TaskManager. |
+| `job.autoscaler.a4s.max-task-managed-memory.mb` | `632` (q20), `1264` (others) | A4S manifest | A4S's largest slot. Keep it equal to Justin's largest step so both have the same ceiling. |
+| `state.backend.rocksdb.memory.write-buffer-ratio` | `0.5` (default) | `flinkConfiguration` | Share of a slot's managed memory reserved for memtables. A4S sizes slots as `cache needed / (1 − ratio)`, and the runtime uses the same value. |
+
+Rules when you change them:
+- A4S cap. Keep `a4s.max-task-managed-memory.mb` ≤
+  `taskmanager.memory.managed.size`. A slot that asks for more cannot fit in
+  any TaskManager and stays pending.
+- Changing the TaskManager size or `max-level`. Recompute Justin's largest
+  step and set the A4S cap to the same value. Crossing 3 GiB changes the base
+  from 158 to 343 MB.
+- Changing `managed.size` or the slot count. This changes DS2's per-slot
+  share and how many large slots fit on one TaskManager, for all three
+  policies. Change it in every policy's manifest for that query.
+- `a4s.memory-base.mb`. It counts toward the A4S cap. Stateless operators
+  receive only this value.
+
+#### Operator (`job.autoscaler.*`, in the FlinkDeployment `flinkConfiguration`)
 
 | Key | Default | What it does |
 |---|---|---|
@@ -328,7 +410,7 @@ and the measured miss ratio, instead of using fixed values.
 | `checkpoint-rescale.producer-pause.enabled` | `false` | Pause the Kafka producer during the rescale. |
 | `checkpoint-rescale.producer-pause.timeout`, `.checkpoint-timeout`, `.restore-timeout` | `1m`, `5m`, `10m` | Time limits for the producer pause or resume, the checkpoint, and the restart. |
 
-**Runtime (`state.backend.rocksdb.*`, in `flinkConfiguration`)**
+#### Runtime (`state.backend.rocksdb.*`, in `flinkConfiguration`)
 
 | Key | Default | What it does |
 |---|---|---|
@@ -342,13 +424,13 @@ and the measured miss ratio, instead of using fixed values.
 | `metrics.stack-distance-histogram` | `false` | Publishes the histogram as a metric. Must be `true`, or the JobManager has nothing to merge. |
 | `metrics.estimate-table-readers-mem` | `false` | Reports the index and filter memory that sits outside the cache. Recommended for A4S. |
 
-**Experiment (environment variables read by `run-env.sh`)**
+#### Experiment (environment variables read by `run-env.sh`)
 
 | Variable | Default | What it does |
 |---|---|---|
 | `POLICY` | `justin` | `ds2`, `justin` or `a4s`; picks `jobs/<QUERY>/<POLICY>/experiment.yaml`. |
 | `QUERY` | `q20` | `q4`, `q9`, `q18`, `q19` or `q20`; also sets the input rate. |
-| `EXPERIMENT_PROFILE` | `paper` | `paper` for c165. `normalized` is for AWS and has no A4S manifests yet. |
+| `EXPERIMENT_PROFILE` | `paper` | `paper` uses `jobs/`. `normalized` is the AWS version and has no A4S manifests yet, so use `paper` for A4S. |
 | `RUN_ID` | required | Unique name of the run, used for the job name and storage paths. |
 | `CHECKPOINT_RESCALE` | `true` | Turns checkpoint-preserving rescaling on or off in the manifest. |
 | `CHECKPOINT_INTERVAL` | `24h` when on; required when off | Periodic checkpoint interval. When rescaling without the transaction, the job restores from the latest periodic checkpoint, so set a real value. |
@@ -370,23 +452,23 @@ RocksDB tuning.
 
 Code: `sources/libs/frocksdb/cache/shards_mrc_estimator.{h,cc}`.
 
-- **What it measures.** An LRU cache of size C hits a read exactly when the
+- What it measures. An LRU cache of size C hits a read exactly when the
   block's reuse distance is at most C. The reuse distance is the amount of
   other data read since the block was last read. The estimator records the
   reuse distance of each read in a histogram; summing the histogram up to C
   gives the hits at cache size C, which is one point of the MRC.
-- **Sampling.** Tracking every block is too expensive, so the estimator follows
+- Sampling. Tracking every block is too expensive, so the estimator follows
   only blocks whose hash falls in a fixed 1% range (`sampling-rate`). Distances
   measured inside the sample are scaled up by `1/R`.
-- **Bytes, not block counts.** Distances are measured in bytes, using each
+- Bytes, not block counts. Distances are measured in bytes, using each
   block's real size in the cache, because RocksDB's cache capacity is in bytes.
-- **What is counted.** Only reads of user data blocks. Index and filter blocks
+- What is counted. Only reads of user data blocks. Index and filter blocks
   are excluded, and so are the placeholder entries that represent memtable
   memory.
-- **Bins.** The histogram has one bin per `bin-size`, up to `max-distance`.
+- Bins. The histogram has one bin per `bin-size`, up to `max-distance`.
   The last bin holds reads that miss at any size: first reads, and distances
   beyond `max-distance`.
-- **Lifetime.** The counters only grow. The estimator never resets them, so
+- Lifetime. The counters only grow. The estimator never resets them, so
   windows are taken by subtracting a snapshot (C below).
 
 ### B. From slot histograms to an operator MRC (Flink runtime)
@@ -403,7 +485,7 @@ Code: `sources/libs/frocksdb/cache/shards_mrc_estimator.{h,cc}`.
 
 ### C. MRC window and SHARDS_adj (operator)
 
-**Window.** The operator keeps one saved histogram per operator.
+Window. The operator keeps one saved histogram per operator.
 - While the job is stabilizing, it overwrites the saved copy on every metric
   collection.
 - After stabilization, the MRC is built from "current histogram minus saved
@@ -413,14 +495,14 @@ Code: `sources/libs/frocksdb/cache/shards_mrc_estimator.{h,cc}`.
 - If the counters ever go down because the caches were recreated, the saved
   copy is reset.
 
-**SHARDS_adj.** The estimator follows about R of all distinct blocks, so it
+SHARDS_adj. The estimator follows about R of all distinct blocks, so it
 should see about `R · N` of the `N` reads. In practice it sees `Ns` reads, and
 `Ns` can be far from `R · N` when a few very hot blocks happen to be in or out
 of the sample:
-- If hot blocks are **outside** the sample, `Ns < R · N`. The plain curve
+- If hot blocks are outside the sample, `Ns < R · N`. The plain curve
   misses those hot blocks' reads, which would mostly be hits, so it shows too
   many misses.
-- If hot blocks are **inside** the sample, `Ns > R · N`, and the plain curve
+- If hot blocks are inside the sample, `Ns > R · N`, and the plain curve
   shows too few misses.
 
 SHARDS_adj divides by the expected count `R · N` instead of the observed `Ns`.
@@ -445,19 +527,19 @@ result when the sample is off.
 
 ### D. Memory-parallelism curve and decision (operator)
 
-- **Curve.** For each parallelism P, the operator computes the highest miss
+- Curve. For each parallelism P, the operator computes the highest miss
   rate that P tasks can afford at the target rate T, using the paper's formula
   `(P/T − l_hit) / (l_miss − l_hit)`. It then reads off the MRC the smallest
   cache with that miss rate or lower.
   - P values that cannot reach the target are left out, even with every read a
     hit, or with a miss rate below anything the MRC shows.
   - `MPC[P]` is the cache for the whole operator.
-- **Decision.** For each operator, A4S takes the lowest P whose per-slot memory
+- Decision. For each operator, A4S takes the lowest P whose per-slot memory
   fits under `max-task-managed-memory.mb`. Per-slot memory is
   `MPC[P] / P / (1 − write-buffer-ratio)`.
   - An operator that fits at no P gets no decision, and the other operators
     are still decided.
-- **Applying.** A decided operator gets its new P and that per-slot memory.
+- Applying. A decided operator gets its new P and that per-slot memory.
   - Stateless operators get `memory-base.mb`.
   - A stateful operator without a decision (no MRC yet, or no P fits) keeps its
     previous memory, and its parallelism follows DS2's recommendation.
