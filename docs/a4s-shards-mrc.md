@@ -98,8 +98,7 @@ conditions:
 - `kubectl` reaches the cluster (`KUBECONFIG`).
 
 `experiments/1729-checkpoint-aware-rescaling/instruction.md` is the full
-step-by-step runbook for the CSL cluster. A4S images use the `a4s-shards-mrc`
-tag, so the DS2/Justin baseline images stay untouched.
+step-by-step runbook for the CSL cluster.
 
 ### Cluster requirements
 
@@ -155,6 +154,9 @@ source experiments/1729-checkpoint-aware-rescaling/run-env.sh
 
 ### Build
 
+Build once. The images are tagged `a4s-shards-mrc` and run all three policies;
+each job's manifest selects the policy.
+
 The steps must run in this order.
 
 ```bash
@@ -187,10 +189,8 @@ kubectl rollout restart deployment/flink-kubernetes-operator --namespace default
 kubectl rollout status deployment/flink-kubernetes-operator --namespace default --timeout=180s
 ```
 
-There is one operator for the whole cluster. Once the `a4s-shards-mrc`
-operator is deployed, DS2 and Justin jobs also run on it. Their behavior is
-unchanged, but it is a different build from the baseline operator.
-`instruction.md` part A5 shows how to check that the running operator image
+There is one operator for the whole cluster, and DS2, Justin and A4S jobs all
+run on it. `instruction.md` part A5 shows how to check that the running operator image
 matches the registry digest.
 
 ### Run
@@ -221,9 +221,11 @@ when a run is finished, evidence collection, and stopping a run.
 
 ### Compare with Justin and DS2
 
-All three policies use the same operator and runtime builds, the same rescale
-path, the same RocksDB tuning, and the same query manifests apart from the
-policy settings.
+All three policies use the same images, the same rescale path, the same RocksDB
+tuning, and the same query manifests apart from the policy settings. Only A4S
+pays for the SHARDS estimator: it is attached to the managed-memory block cache,
+and the DS2/Justin manifests set `memory.managed: false`, so their block cache
+comes from Justin's options factory.
 
 | | DS2 | Justin | A4S |
 |---|---|---|---|
@@ -240,9 +242,10 @@ Rules for a fair comparison:
   memory M gives about `M · (1 − write-buffer-ratio)` of block cache, because
   the rest is reserved for memtables. Report `estimate-table-readers-mem` next
   to the memory numbers, since that memory is outside every policy's budget.
-- The existing DS2/Justin checkpoint results were run on the
-  `benchmark-checkpoint-rescale` images. For a strict comparison, rerun them on
-  the `a4s-shards-mrc` images by setting the three `*_IMAGE_TAG` variables.
+- The existing DS2/Justin checkpoint results were run on the older
+  `benchmark-checkpoint-rescale` images, which have a different runtime and
+  FRocksDB. Rerun DS2 and Justin on `a4s-shards-mrc` before comparing them with
+  A4S.
 
 ## How to test
 

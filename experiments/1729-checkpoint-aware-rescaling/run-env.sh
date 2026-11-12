@@ -99,16 +99,11 @@ fi
 export RENDERED_MANIFEST="/tmp/${QUERY}-${EXPERIMENT_PROFILE}-checkpoint-aware-${RUN_ID}.yaml"
 export RUN_RESULTS_DIR="experiments/1729-checkpoint-aware-rescaling/results/${RUN_ID}"
 
-# A4S uses its own images (SHARDS FRocksDB, A4S operator) so building them leaves the
-# DS2/Justin baseline images untouched
-if [[ "${POLICY}" == "a4s" ]]; then
-  export FLINK_RUNTIME_IMAGE_TAG="${FLINK_RUNTIME_IMAGE_TAG:-a4s-shards-mrc}"
-  export FLINK_BENCHMARK_IMAGE_TAG="${FLINK_BENCHMARK_IMAGE_TAG:-a4s-shards-mrc}"
-  export OPERATOR_IMAGE_TAG="${OPERATOR_IMAGE_TAG:-a4s-shards-mrc}"
-fi
-export FLINK_RUNTIME_IMAGE_TAG="${FLINK_RUNTIME_IMAGE_TAG:-benchmark-checkpoint-rescale}"
-export FLINK_BENCHMARK_IMAGE_TAG="${FLINK_BENCHMARK_IMAGE_TAG:-benchmark-checkpoint-rescale}"
-export OPERATOR_IMAGE_TAG="${OPERATOR_IMAGE_TAG:-benchmark-checkpoint-rescale}"
+# One image set runs all three policies; each job's manifest selects the policy.
+# Set the three tags to benchmark-checkpoint-rescale to reuse the older DS2/Justin images.
+export FLINK_RUNTIME_IMAGE_TAG="${FLINK_RUNTIME_IMAGE_TAG:-a4s-shards-mrc}"
+export FLINK_BENCHMARK_IMAGE_TAG="${FLINK_BENCHMARK_IMAGE_TAG:-a4s-shards-mrc}"
+export OPERATOR_IMAGE_TAG="${OPERATOR_IMAGE_TAG:-a4s-shards-mrc}"
 export OPERATOR_SOURCE_DIR="sources/operators/flink-kubernetes-operator-justin"
 
 # shellcheck source=scripts/env.sh

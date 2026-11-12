@@ -82,7 +82,7 @@ spec:
     web.cancel.enable: "true"
     web.submit.enable: "true"
   flinkVersion: v1_18
-  image: 142.150.234.165:5000/flink-benchmark-runtime:benchmark-checkpoint-rescale
+  image: __FLINK_BENCHMARK_IMAGE__
   imagePullPolicy: Always
   job:
     args:

@@ -86,27 +86,22 @@ bash experiments/1729-checkpoint-aware-rescaling/render-job.sh
 kubectl apply --dry-run=server -f "${RENDERED_MANIFEST}"
 kubectl apply -f "${RENDERED_MANIFEST}"
 
-# Next policy: stop the previous job, clear values run-env.sh only sets when unset
-# (otherwise a DS2 shell keeps DS2's image tags for A4S), then repeat
+# Next policy: stop the previous job, clear values run-env.sh only sets when unset,
+# then repeat
 scripts/autoscaling/job-management/stop-job.sh flink
-unset EVENTS FLINK_RUNTIME_IMAGE_TAG FLINK_BENCHMARK_IMAGE_TAG OPERATOR_IMAGE_TAG CHECKPOINT_INTERVAL
+unset EVENTS CHECKPOINT_INTERVAL
 export POLICY=a4s RUN_ID=20261111-q20-a4s-01   # POLICY: ds2, justin or a4s; new RUN_ID per run
 source experiments/1729-checkpoint-aware-rescaling/run-env.sh
 bash experiments/1729-checkpoint-aware-rescaling/render-job.sh && kubectl apply -f "${RENDERED_MANIFEST}"
 ```
 
-By default, `run-env.sh` deploys A4S on the `a4s-shards-mrc` images and
-DS2/Justin on the older `benchmark-checkpoint-rescale` images, so the
-baseline images are never overwritten. For a like-for-like comparison, run all
-three policies on the same images:
-
-```bash
-export FLINK_RUNTIME_IMAGE_TAG=a4s-shards-mrc \
-       FLINK_BENCHMARK_IMAGE_TAG=a4s-shards-mrc \
-       OPERATOR_IMAGE_TAG=a4s-shards-mrc
-export POLICY=justin RUN_ID=20261111-q20-justin-a4simg-01
-source experiments/1729-checkpoint-aware-rescaling/run-env.sh
-```
+All three policies run on the same `a4s-shards-mrc` images. The SHARDS estimator
+runs only for A4S, because it is attached to the managed-memory block cache and
+the DS2/Justin manifests set `memory.managed: false`. To reuse the older DS2/Justin
+images on the CSL cluster, export `FLINK_RUNTIME_IMAGE_TAG`,
+`FLINK_BENCHMARK_IMAGE_TAG` and `OPERATOR_IMAGE_TAG` as
+`benchmark-checkpoint-rescale` before sourcing `run-env.sh`; they have a different
+runtime and FRocksDB, so the results do not isolate the policy.
 
 The operator image is deployed once for the whole cluster (`instruction.md`
 part A5), not per job.

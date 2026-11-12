@@ -57,12 +57,11 @@ still a submodule.
 These settings select the image tag and the operator source without creating
 benchmark run state. Use one tag per code version so a build never overwrites
 images that other experiments use. `run-env.sh` in Part B defaults to
-`a4s-shards-mrc` for `POLICY=a4s` and `benchmark-checkpoint-rescale` otherwise;
-build under the tag that Part B will deploy.
+`a4s-shards-mrc` for every policy; build under the tag that Part B will deploy.
 
 ```bash
 export KUBECONFIG=/etc/flink-kubernetes-autoscaling/kubeconfig
-IMAGE_TAG=a4s-shards-mrc        # or benchmark-checkpoint-rescale for the DS2/Justin baseline images
+IMAGE_TAG=a4s-shards-mrc        # runs ds2, justin and a4s
 export FLINK_RUNTIME_IMAGE_TAG="${IMAGE_TAG}"
 export FLINK_BENCHMARK_IMAGE_TAG="${IMAGE_TAG}"
 export OPERATOR_IMAGE_TAG="${IMAGE_TAG}"
@@ -234,9 +233,8 @@ printf 'EVENTS=%s TPS=%s\n' "${EVENTS}" "${TPS}"
 `render-job.sh` loads the independent `jobs/${QUERY}/${POLICY}/experiment.yaml`
 manifest and writes the run ID, the image, and the checkpoint settings
 (`CHECKPOINT_RESCALE`, `CHECKPOINT_INTERVAL`) into `${RENDERED_MANIFEST}`.
-`run-env.sh` also picks the image tags: `a4s-shards-mrc` for `POLICY=a4s`,
-`benchmark-checkpoint-rescale` otherwise. Override the three `*_IMAGE_TAG`
-variables to run DS2 or Justin on the A4S images. The already deployed
+`run-env.sh` also sets the image tags to `a4s-shards-mrc` for every policy;
+export the three `*_IMAGE_TAG` variables first to use other images. The already deployed
 Kubernetes Operator then runs that scaler automatically; do not start a
 separate scaler process or the historical coordinator.
 
