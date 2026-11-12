@@ -408,6 +408,27 @@ class SlotSharingSlotAllocatorTest {
         assertThat(reservationCount).hasValue(0);
     }
 
+    @Test
+    void testDoesNotReserveResourcesForDuplicateVertexAssignment() {
+        final SlotSharingSlotAllocator slotAllocator =
+                SlotSharingSlotAllocator.createSlotSharingSlotAllocator(
+                        TEST_RESERVE_SLOT_FUNCTION,
+                        TEST_FREE_SLOT_FUNCTION,
+                        TEST_IS_SLOT_FREE_FUNCTION);
+        final JobVertexID jobVertexId = new JobVertexID();
+        final ExecutionSlotSharingGroup group =
+                new ExecutionSlotSharingGroup(
+                        Collections.singleton(new ExecutionVertexID(jobVertexId, 0)));
+        final JobSchedulingPlan duplicatePlan =
+                new JobSchedulingPlan(
+                        new VertexParallelism(Collections.singletonMap(jobVertexId, 1)),
+                        Arrays.asList(
+                                new JobSchedulingPlan.SlotAssignment(new TestSlotInfo(), group),
+                                new JobSchedulingPlan.SlotAssignment(new TestSlotInfo(), group)));
+
+        assertThat(slotAllocator.tryReserveResources(duplicatePlan)).isNotPresent();
+    }
+
     /**
      * Basic test to verify that allocation takes previous allocations into account to facilitate
      * Local Recovery.
