@@ -73,5 +73,7 @@ images/flink-kubernetes-operator/build.sh \
 ```
 
 Cluster manifests live under `cluster/`. Operational cluster and job commands
-live under `scripts/autoscaling/`. The q20_unique c153 external Kafka flow lives
-under `experiments/1724-kafka-q20-unique/`.
+live under `scripts/autoscaling/`. The [Kafka benchmark directories](experiments/)
+contain Q4, Q9, Q18, Q19, and Q20 manifests for DS2 and Justin. The
+[checkpoint-aware runbook](experiments/1729-checkpoint-aware-rescaling/README.md)
+covers A4S, DS2, and Justin with the matching upstream images.

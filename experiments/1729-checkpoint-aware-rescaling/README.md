@@ -1,0 +1,208 @@
+# Checkpoint-Aware Rescaling Evaluation
+
+For the current five-terminal operator runbook, see
+[`instruction.md`](instruction.md).
+
+This experiment preserves the standalone producer container and Kafka topics
+while each A4S, Justin, or DS2 rescale is gated by a fresh completed Flink
+checkpoint. A transaction-aware controller pauses generation before the
+checkpoint and resumes the same process after restore. It is separate from the
+paper-reproduction coordinator, which resets Kafka and replays bounded input
+after each stateless rescale.
+
+Q4, Q9, Q18, Q19, and Q20 each have complete A4S, Justin, and DS2
+manifests under `jobs/<query>/<policy>/experiment.yaml`. They retain each
+query's fixed source parallelism and input rate. The three policies for each
+query share the same TaskManager profile. Q20 uses four CPUs and four slots,
+and the other queries use eight CPUs and eight slots. All use 3 GiB per
+TaskManager, 1264 MiB of managed memory, vertex cap 12, and pipeline maximum
+360.
+
+For the separate AWS comparison profile with a common 55,000 events/s query
+input, fixed bid P6 and auction P3 sources, and 4-CPU/3-GiB/four-slot
+TaskManagers, use [`jobs-normalized/`](jobs-normalized/README.md). The original
+`jobs/` manifests above remain unchanged for paper reproduction.
+
+Set `EXPERIMENT_PROFILE=normalized` and source
+[`aws.env.example`](aws.env.example) before `run-env.sh` to render the AWS
+profile. It replaces the ECR image, S3 bucket, Kafka endpoint, and run ID while
+keeping credentials outside Git.
+
+| Query | Producer rate | Fixed Kafka sources |
+|---|---:|---|
+| Q4 | 40,000 events/s | bid P6, auction P3 |
+| Q9 | 40,000 events/s | bid P6, auction P3 |
+| Q18 | 97,827 events/s | bid P3 |
+| Q19 | 59,783 events/s | bid P1 |
+| Q20 | 60,000 events/s | bid P12, auction P1 |
+
+Each run has a 300-million mixed Nexmark event horizon. This keeps the bounded
+producer live through repeated checkpoint/rescale cycles and the final
+stability observation. The combined observer remains the primary termination
+condition, so a run may stop after it reports the experiment end condition;
+it does not need to emit all 300 million events. Downstream operators start at
+the parallelism recorded in that query's manifest and are controlled by the
+selected policy.
+
+The first decision uses a one-minute bootstrap restart estimate. After a
+checkpoint-gated rescale succeeds, the transaction records the time from
+applying its frozen target until the replacement execution graph enters
+`RUNNING`. Later decisions use the maximum observed restart duration, capped
+at ten minutes, to reserve capacity for backlog expected during the next graph
+restart. Existing Kafka lag remains a separate, directly measured catch-up
+term with a 30-minute drain target; the same backlog is never added manually.
+
+## Render and inspect
+
+Run from the repository root on c165:
+
+```bash
+export KUBECONFIG=/etc/flink-kubernetes-autoscaling/kubeconfig
+export QUERY=q20     # q4, q9, q18, q19, or q20
+export POLICY=justin  # ds2, justin, or a4s
+export RUN_ID=20260811-q20-justin-integrated-01
+
+source experiments/1729-checkpoint-aware-rescaling/run-env.sh
+experiments/1729-checkpoint-aware-rescaling/render-job.sh
+
+kubectl apply --dry-run=server \
+  -f "${RENDERED_MANIFEST}"
+```
+
+`RUN_ID` is mandatory, must be reused in every terminal for the run, and must
+contain only ASCII letters, digits, dots, underscores, and hyphens. Use a new
+value for every independent experiment. The renderer substitutes it into the
+job name and these NFS paths:
+
+```text
+/mnt/experiments/autoscaling-experiments/flink-state/runs/${RUN_ID}/checkpoints
+/mnt/experiments/autoscaling-experiments/flink-state/runs/${RUN_ID}/savepoints
+/mnt/experiments/autoscaling-experiments/flink-state/runs/${RUN_ID}/ha
+```
+
+Render and archive each query/policy manifest before comparing the runs. Each
+manifest contains its own checkpoint, storage, workload, resource, source,
+and policy settings. Use distinct IDs such as
+`20260811-q20-justin-integrated-01` and
+`20260811-q20-ds2-integrated-01` for a matched pair.
+
+Justin freezes and applies parallelism plus resource-profile overrides. DS2
+uses the same transaction and recovery checks but freezes and applies only
+parallelism overrides; checkpoint mode does not change either policy's
+decision calculation.
+
+See [Part A of the runbook](instruction.md#part-a-build-and-deploy-software)
+to prepare the matching runtime, benchmark image, and operator from the pinned
+upstream checkout. Run Part B from this runner branch once those images and
+the operator are available.
+
+## Run
+
+Use separate terminals on c165. Every terminal starts with:
+
+```bash
+cd ~/flink-experiment-runners
+export POLICY=justin  # ds2, justin, or a4s; use the same policy in every terminal
+export QUERY=q20      # keep the same query in every terminal
+export RUN_ID=20260811-q20-justin-integrated-01  # exact same ID in every terminal
+unset EVENTS
+source experiments/1729-checkpoint-aware-rescaling/run-env.sh
+```
+
+`POLICY` selects the scaler embedded in the rendered manifest. The Kubernetes
+Operator runs it automatically; do not start a separate scaler process.
+
+In terminal 1, reset Kafka once, deploy the consumer, and wait for `RUNNING`:
+
+```bash
+experiments/1724-kafka-q20-unique/external-kafka/run/manage-external-kafka.sh reset
+experiments/1729-checkpoint-aware-rescaling/render-job.sh
+kubectl apply --dry-run=server -f "${RENDERED_MANIFEST}"
+kubectl apply -f "${RENDERED_MANIFEST}"
+kubectl get flinkdeployment flink -w
+
+# Press Ctrl-C after the job is RUNNING and terminal 2 is observing it.
+```
+
+In terminal 2, start the shared background port-forwards and the combined
+benchmark observer:
+
+```bash
+scripts/autoscaling/job-monitoring/port-forward.sh start
+scripts/autoscaling/job-monitoring/port-forward.sh status
+scripts/autoscaling/job-monitoring/observe-benchmark.py \
+  --interval 5 \
+  --rate-window 30s \
+  --cpu-rate-window 2m
+```
+
+Once terminal 2 is observing the job, return to terminal 1 and start the
+bounded producer exactly once:
+
+```bash
+experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh start
+experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh logs
+```
+
+After a successful rescale, `restart_ms` is the measured apply-to-RUNNING
+duration that will provide restart headroom for later decisions.
+The observer starts a one-minute post-restore stabilization timer and then
+requires three passing two-minute windows before reporting capacity stability.
+It distinguishes a falling backlog, a flat positive backlog, and a near-zero
+flat backlog instead of treating all above-target consumer throughput as steady.
+After three passing windows it latches an `EXPERIMENT END CONDITION REACHED`
+banner so a later bounded-producer exit cannot overwrite an already accepted
+run. Pass `--exit-when-stable` for a successful automatic observer exit.
+
+Do not run `scaling-kafka-coordinator.py`: that script stops the producer,
+deletes Kafka topics, and replays from event 1 after a rescale. Run
+`checkpoint-producer-controller.py --interval 1` instead. It freezes the
+producer container during checkpoint/apply/restore without resetting Kafka or
+the producer's progress.
+
+Inspect or manually control a failed transaction with:
+
+```bash
+experiments/1729-checkpoint-aware-rescaling/manage-transaction.sh status
+experiments/1729-checkpoint-aware-rescaling/manage-transaction.sh retry
+experiments/1729-checkpoint-aware-rescaling/manage-transaction.sh abort
+```
+
+`abort` is accepted only before target overrides are applied. After that
+point, preserve the failed job for debugging and use `retry` after repairing
+the cause.
+
+Capture the transaction, checkpoints, Kubernetes state, and logs while the
+REST port-forward is still running:
+
+```bash
+experiments/1724-kafka-q20-unique/analysis/export-experiment-data.py \
+  --name "${RUN_ID}" \
+  --flink-url "http://localhost:${FLINK_LOCAL_PORT:-18082}" \
+  --prom-url "http://localhost:${PROMETHEUS_LOCAL_PORT:-19091}"
+experiments/1729-checkpoint-aware-rescaling/collect-evidence.sh
+```
+
+The shared exporter retains the Prometheus throughput, Kafka lag, busy,
+resource, and policy decision timelines; `collect-evidence.sh` adds the
+rendered manifest, run/storage identity, checkpoint transaction, and raw
+reconciliation evidence under `results/${RUN_ID}`.
+
+## Stop
+
+Stop the producer, delete the FlinkDeployment, and then stop Kafka. Do not run
+the replay coordinator during this pilot.
+
+```bash
+experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh stop
+scripts/autoscaling/job-management/stop-job.sh flink
+experiments/1724-kafka-q20-unique/external-kafka/run/manage-external-kafka.sh stop
+```
+
+Stopping or deleting the FlinkDeployment does not automatically delete the
+run directory because checkpoints are externalized with
+`RETAIN_ON_CANCELLATION`. Never delete `chk-*`, `_metadata`, or `shared/`
+individually. After evidence is archived and no deployment can restore this
+run, inspect and remove the entire paper-profile NFS `runs/${RUN_ID}` directory with
+`cleanup-run-state.sh`; it requires an exact run-ID confirmation and refuses
+to operate while any FlinkDeployment or Flink pod exists.

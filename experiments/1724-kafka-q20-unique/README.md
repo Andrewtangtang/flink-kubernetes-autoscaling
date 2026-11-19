@@ -1,7 +1,40 @@
-# q20_unique Kafka Experiment
+# Q20 Benchmark
 
-This experiment runs `q20_unique` as the autoscaled Flink consumer job. The
-input stream is produced outside Kubernetes:
+This experiment compares Justin and DS2 on the state-heavy `q20_unique` Flink
+SQL query.
+
+## Configuration
+
+| Setting | Justin | DS2 |
+|---|---:|---:|
+| Producer rate | 60K mixed Nexmark events/s | 60K mixed Nexmark events/s |
+| Generated events | 100M | 100M |
+| TaskManager resources | 8 CPU, 3 GiB, 8 slots | 8 CPU, 3 GiB, 8 slots |
+| Managed memory | 1264 MiB | 1264 MiB |
+| Metrics window | 2 minutes | 2 minutes |
+| Stabilization interval | 3 minutes | 3 minutes |
+| Pipeline maximum parallelism | 360 | 360 |
+| Autoscaler vertex maximum | 12 | 12 |
+
+Initial job parallelism:
+
+| Operator | Parallelism | Autoscaled |
+|---|---:|:---:|
+| Bid Kafka source | 12 | no |
+| Auction Kafka source | 1 | no |
+| Interval join | 1 | yes |
+
+Each policy has a complete standalone manifest:
+
+- `jobs/justin/experiment.yaml`
+- `jobs/ds2/experiment.yaml`
+
+The four original `jobs/q20_unique-sql-ssd-*-rocksdb-options.yaml` manifests
+remain available for reproducing earlier runs with their original settings.
+
+## Runbook
+
+The input stream is produced outside Kubernetes:
 
 ```text
 standalone Flink producer on c153
@@ -60,7 +93,7 @@ export JM_PROCESS_MEMORY=2048m
 export TM_PROCESS_MEMORY=8192m
 
 export TPS=60000
-export EVENTS=300000000
+export EVENTS=100000000
 export MAX_EMIT_SPEED=false
 ```
 
@@ -80,6 +113,10 @@ producer startup path.
 scripts/autoscaling/cluster-management/05-prepull-images.sh --target-host "${TARGET_HOST}"
 ```
 
+Producer startup reuses an image already cached on the external host. After
+rebuilding under the same tag, run the producer helper's `sync-image` action
+from the Docker host that has the updated image.
+
 Reset external Kafka. This starts the broker if needed and recreates the
 three q20_unique Kafka topics with empty state:
 `nexmark-person`, `nexmark-auction`, and `nexmark-bid`.
@@ -92,14 +129,14 @@ Submit one consumer job to the operator. Use the DS2 manifest:
 
 ```bash
 scripts/autoscaling/job-management/submit-job.sh \
-  experiments/1724-kafka-q20-unique/jobs/q20_unique-sql-ssd-kafka-ds2-rocksdb-options.yaml
+  experiments/1724-kafka-q20-unique/jobs/ds2/experiment.yaml
 ```
 
 Or use the Justin autoscaler manifest:
 
 ```bash
 scripts/autoscaling/job-management/submit-job.sh \
-  experiments/1724-kafka-q20-unique/jobs/q20_unique-sql-ssd-kafka-justin-rocksdb-options.yaml
+  experiments/1724-kafka-q20-unique/jobs/justin/experiment.yaml
 ```
 
 Wait for the consumer to be running before starting the producer:
@@ -160,23 +197,30 @@ scripts/autoscaling/status.sh
 The producer REST UI is on the external host at `http://c153:18081` when
 `PRODUCER_REST_PORT=18081`.
 
+## Export Results
+
+When you have collected enough data, stop the coordinator with Ctrl-C and
+export the metrics while the FlinkDeployment is still running:
+
+```bash
+scripts/autoscaling/job-monitoring/port-forward.sh start
+experiments/1724-kafka-q20-unique/analysis/export-experiment-data.py \
+  --flink-url "http://localhost:${FLINK_LOCAL_PORT:-18082}" \
+  --prom-url "http://localhost:${PROMETHEUS_LOCAL_PORT:-19091}"
+```
+
 ## Stop A Run
 
-Stop the coordinator with `Ctrl-C`, then stop the producer and consumer:
+After exporting, stop the producer, consumer, and port-forwards:
 
 ```bash
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-standalone-producer.sh stop || true
 scripts/autoscaling/job-management/stop-job.sh flink || true
+scripts/autoscaling/job-monitoring/port-forward.sh stop
 ```
 
 Stop Kafka only when you are done with the external broker:
 
 ```bash
 experiments/1724-kafka-q20-unique/external-kafka/run/manage-external-kafka.sh stop || true
-```
-
-Export metrics and logs after a completed run:
-
-```bash
-experiments/1724-kafka-q20-unique/analysis/export-experiment-data.py
 ```

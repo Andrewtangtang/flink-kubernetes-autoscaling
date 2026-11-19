@@ -714,11 +714,13 @@ def main() -> None:
         vertex_ids = find_vertex_ids(job_detail)
         producer = discover_producer_config()
 
-        autoscaler = (
-            "justin"
-            if deployment["spec"]["flinkConfiguration"].get("job.autoscaler.justin.enabled") == "true"
-            else "ds2"
-        )
+        flink_config = deployment["spec"]["flinkConfiguration"]
+        if flink_config.get("job.autoscaler.a4s.enabled") == "true":
+            autoscaler = "a4s"
+        elif flink_config.get("job.autoscaler.justin.enabled") == "true":
+            autoscaler = "justin"
+        else:
+            autoscaler = "ds2"
         output_dir = build_output_dir(autoscaler=autoscaler, producer=producer, explicit_name=args.name)
 
         start_ts = float(args.start) if args.start else max(float(job_status.get("startTime", 0)) / 1000 - 60, 0)
@@ -739,7 +741,7 @@ def main() -> None:
             ),
         }
         # DS2: use Prometheus subtask count for join parallelism
-        # Justin: parallelism (and memory level) come from the autoscaler ConfigMap instead
+        # Justin and A4S use the autoscaler ConfigMap for scaling history.
         if autoscaler == "ds2":
             query_specs["join_parallelism"] = f'count(sum by (subtask_index) (flink_taskmanager_job_task_busyTimeMsPerSecond{{job_id="{job_id}",task_name=~"Join.*"}}))'
         if vertex_ids.get("auction_source"):
@@ -758,7 +760,7 @@ def main() -> None:
 
         rescale_windows = parse_rescale_windows(args.deployment, start_ts=start_ts, end_ts=end_ts)
 
-        if autoscaler == "justin":
+        if autoscaler in ("justin", "a4s"):
             # Parallelism and memory level both come from the autoscaler ConfigMap
             justin_para_rows, justin_mem_rows = parse_justin_scaling_history(
                 args.deployment,

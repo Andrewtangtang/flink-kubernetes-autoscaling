@@ -118,8 +118,8 @@ def main() -> None:
     mem_t, mem_v = step_series(memory_rows, "memory_mb")
     if mem_t:
         mem_ax = axes[1].twinx()
-        is_justin = metadata.get("autoscaler") == "justin"
-        mem_label = "Memory Level" if is_justin else "Memory (MB)"
+        uses_memory_levels = metadata.get("autoscaler") in ("justin", "a4s")
+        mem_label = "Memory Level" if uses_memory_levels else "Memory (MB)"
         mem_ax.step(mem_t, mem_v, where="post", linestyle=":", linewidth=2, label=mem_label)
         mem_ax.set_ylabel(mem_label, fontsize=15)
         left_handles, left_labels = axes[1].get_legend_handles_labels()

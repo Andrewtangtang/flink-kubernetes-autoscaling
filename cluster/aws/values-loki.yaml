@@ -1,0 +1,4 @@
+loki:
+  isDefault: false
+  nodeSelector:
+    workload: flink

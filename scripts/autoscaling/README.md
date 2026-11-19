@@ -47,12 +47,17 @@ image cache on the external Kafka/producer host.
 ## Job Management
 
 ```bash
-scripts/autoscaling/job-management/submit-job.sh experiments/1724-kafka-q20-unique/jobs/q20_unique-sql-ssd-kafka-justin-rocksdb-options.yaml
+scripts/autoscaling/job-management/submit-job.sh experiments/1724-kafka-q20-unique/jobs/justin/experiment.yaml
 scripts/autoscaling/job-management/job-status.sh
 scripts/autoscaling/job-management/stop-job.sh
 ```
 
 ## Job Monitoring
+
+Start the port-forwards after the Flink REST service exists. The defaults
+are Flink on port 18082, Prometheus on 19091, and Grafana on 3001. Set
+`FLINK_LOCAL_PORT`, `PROMETHEUS_LOCAL_PORT`, or `GRAFANA_LOCAL_PORT` to
+override a local port.
 
 ```bash
 scripts/autoscaling/job-monitoring/port-forward.sh start

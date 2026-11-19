@@ -54,8 +54,8 @@ The consumer job is the autoscaling target. Submit either the Justin or DS2
 consumer manifest from `experiments/1724-kafka-q20-unique/jobs/`:
 
 ```bash
-scripts/autoscaling/job-management/submit-job.sh experiments/1724-kafka-q20-unique/jobs/q20_unique-sql-ssd-kafka-justin-rocksdb-options.yaml
-scripts/autoscaling/job-management/submit-job.sh experiments/1724-kafka-q20-unique/jobs/q20_unique-sql-ssd-kafka-ds2-rocksdb-options.yaml
+scripts/autoscaling/job-management/submit-job.sh experiments/1724-kafka-q20-unique/jobs/justin/experiment.yaml
+scripts/autoscaling/job-management/submit-job.sh experiments/1724-kafka-q20-unique/jobs/ds2/experiment.yaml
 ```
 
 Both manifests enable the Flink autoscaler. The Justin manifest sets
